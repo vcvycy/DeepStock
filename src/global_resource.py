@@ -4,7 +4,7 @@ from datetime import datetime
 from data.sqlite import sql_api 
 from data.sqlite.define import TABLE 
 from util import date_add
-
+import math
 # from functools import wraps
 # def decorator(func):
 #     @wraps(func)
@@ -91,7 +91,10 @@ class StockInfo:
     def rise(cls, date, end_date = None):
         if end_date is None:
             end_date = date
-        return (cls.daily(end_date).close / cls.daily(date).open) / cls.daily(date).open
+        # print("%s [%s ~ %s] %s %s " %(cls.name, date, end_date, cls.daily(end_date).close, cls.daily(date).pre_close))
+        rise = (cls.daily(end_date).close - cls.daily(date).pre_close) / cls.daily(date).pre_close
+        # print(rise)
+        return rise
 
 
 class _ResourceCLS:
@@ -116,6 +119,15 @@ class _ResourceCLS:
         if self._trade_date is None:
             self._trade_date = ts_api.get_trade_date()
         return self._trade_date
+    def trade_date_add(self, trade_date, delta = 1):
+        # 往前推k个交易日
+        one_delta = 1 if delta > 0 else -1
+        while delta != 0:
+            assert trade_date >= '19900101' and trade_date <= '20990101', ""
+            trade_date = date_add(trade_date, one_delta)
+            if trade_date in self.trade_dates:
+                delta -= one_delta
+        return trade_date
     @property
     def ts_code_list(self):
         return list(self.ts_code_to_stock_info)
@@ -145,9 +157,10 @@ class _ResourceCLS:
 Resource = _ResourceCLS()
 
 if __name__ == "__main__":
-    # print(Resource.trade_dates)
-    stock = Resource.ts_code_to_stock_info['000001.SZ']
-    print(stock.daily('20231120', '20231220'))
+    print(Resource.trade_dates)
+    print(Resource.trade_date_add('20231228', -4))
+    # stock = Resource.ts_code_to_stock_info['000001.SZ']
+    # print(stock.daily('20231120', '20231220'))
     # print(Resource.find_stock("茅台", key = 'name'))
     # for stock in Resource.find_stock("白酒", key = 'industry'):
     #     print(stock.name)

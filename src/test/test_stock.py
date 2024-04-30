@@ -167,5 +167,48 @@ class industrySolver(BaseSolver):
         except:
             return 
 
+class industrySolver(BaseSolver):
+    def __init__(self): 
+        st = '20221018'
+        mid = '20221118' 
+        ed = '20221230' 
+        self.stock2open_close_before = sql_api.get_stock_rise_between_dates(st, mid)
+        self.stock2open_close_after = sql_api.get_stock_rise_between_dates(mid, ed)
+        return 
+    def filter(self, stock):
+        return stock.ts_code in self.stock2open_close_before and stock.ts_code in self.stock2open_close_after
+
+    def grouper(self, stocks):
+        """ 对股票进行排序, 然后分成group_num组
+        """
+        def sort_fun(stock):
+            open, close = self.stock2open_close_before[stock.ts_code] 
+            return  close / open -1 
+            # return int(stock.total_mv/1e4)
+        group_num = 10
+        group2list = {}
+        stocks.sort(key = sort_fun)
+        stock_groups = self.split_to_groups(stocks, group_num)
+        prev = None
+        for i, cur_stocks in enumerate(stock_groups):
+            if prev is None:
+                prev = sort_fun(cur_stocks[0])
+            next = sort_fun(cur_stocks[-1])
+            group = f"Group[{i}]({prev:.3f}~{next:.3f})"
+            group2list[group] = cur_stocks
+            prev = next 
+        return group2list 
+
+    def scorer(self, stock):
+        """ 给一个股票打分
+        """ 
+        try:
+            open, close = self.stock2open_close_after[stock.ts_code]
+            return close / open -1
+        except:
+            return 
+
+
+
 if __name__ == "__main__":
     industrySolver.deal()
