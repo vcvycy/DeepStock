@@ -1,8 +1,10 @@
+### 所有操作sql的语句都加在这里 ###
 import sqlite3
 import pandas as pd
 import os
 from datetime import datetime
 from data.sqlite.define import TABLE
+import logging
 DATABASE_NAME = os.environ.get('DB_FILE')
 assert DATABASE_NAME is not None, "数据库名: DB_FILE未配置(环境变量)"
 print("DB: %s" %(DATABASE_NAME))
@@ -11,14 +13,17 @@ def get_conn():
     global DATABASE_NAME
     return sqlite3.connect(DATABASE_NAME)
 
-def simple_execute(query, to_dict = True):
+def simple_execute(query, params=None, to_dict=True):
     """ 执行query
     """
     def dict_factory(cursor, row):
         return { col[0] : row[idx] for idx, col in enumerate(cursor.description)}
     conn = get_conn()
     cursor = conn.cursor() 
-    cursor.execute(query)
+    if params:
+        cursor.execute(query, params)
+    else:
+        cursor.execute(query)
     if to_dict:
         cursor.row_factory = dict_factory
     return cursor.fetchall()
@@ -108,6 +113,68 @@ def get_stock_daily_info(ts_code, st_date, ed_date = None):
     # print(len(data))
     return data
 
+def update_date_avg_label_table(date2label_count):
+    """ 更新avg_label_table表
+    """
+    # 将date2label_count转换为DataFrame
+    data = []
+    for date_and_key, label_and_count in date2label_count.items():
+        date, key = date_and_key
+        avg_label, count = label_and_count
+        data.append({'date': date, 'key': key, 'avg_label': avg_label, 'count': count})
+    df = pd.DataFrame(data)
+    try:
+        write_table_with_dataframe("date_avg_label_table", df, if_exists='replace', add_update_time=True)
+        logging.info("[update_date_avg_label_table] success, 数据量: %s" % (df.shape[0]))
+    except Exception as e:
+        logging.error("[update_date_avg_label_table] failed: %s" % e)
+    return
+
+def update_fid_avg_label(fid2label_count):
+    """ 更新fid_avg_label_table表
+    """
+    # 将fid2label_count转换为DataFrame
+    data = []
+    for fid_and_key, label_and_count in fid2label_count.items():
+        fid, key = fid_and_key 
+        avg_label,count = label_and_count
+        data.append({'fid': fid, 'key': key, 'avg_label': avg_label, 'count': count})
+    df = pd.DataFrame(data)
+    try:
+        write_table_with_dataframe("fid_avg_label_table", df, if_exists='replace', add_update_time=True)
+        logging.info("[update_fid_avg_label] success, 数据量: %s" % (df.shape[0]))
+    except Exception as e:
+        logging.error("[update_fid_avg_label] failed: %s" % e)
+    return
+def read_date_avg_label(key=None):
+    """ 指定key返回 date -> avg_label """
+    if key is None:
+        # 获取所有可用的 key
+        query = "SELECT DISTINCT key FROM date_avg_label_table"
+        keys = simple_execute(query, to_dict=False)
+        logging.error("read_date_avg_label: 没有指定key, 可用: %s" %(keys))
+        exit(0)
+    else:
+        # 根据指定的 key 获取 date -> avg_label
+        query = "SELECT date, avg_label FROM date_avg_label_table WHERE key = ?"
+        result = simple_execute(query, to_dict=True, params=(key,))
+        date_avg_label = {row['date']: row['avg_label'] for row in result}
+        return date_avg_label
+
+def read_fid_avg_label(key=None):
+    """ 指定key返回 fid -> avg_label """
+    if key is None:
+        # 获取所有可用的 key
+        query = "SELECT DISTINCT key FROM fid_avg_label_table"
+        keys = simple_execute(query, to_dict=False)
+        logging.error("read_date_avg_label: 没有指定key, 可用: %s" %(keys))
+        exit(0)
+    else:
+        # 根据指定的 key 获取 fid -> avg_label
+        query = "SELECT fid, avg_label FROM fid_avg_label_table WHERE key = ?"
+        result = simple_execute(query, to_dict=True, params=(key,))
+        fid_avg_label = {row['fid']: row['avg_label'] for row in result}
+        return fid_avg_label
 if __name__ == "__main__":
     # print(get_table_columns(TABLE.BASIC))
     # read_single_stock('002140.SZ')
