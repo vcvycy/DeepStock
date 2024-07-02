@@ -1,13 +1,20 @@
 from easydict import EasyDict
 from util import enum_instance
+from utils3 import mprint
 import yaml, logging
 from queue import Queue
+import sys, os
 import threading
 import time
-from train.resource_manager import RM
+from data.sqlite import sql_api
 """ 从训练文件读取数据，多线程把数据写到 train_queue, test_queue。然后每次可以从这里读取数据
-相关配置:
-   
+    包括 : 
+        (1) 读取instances : 
+            a. label -avg(label)
+            b. slot 黑名单/白名单
+            c. 拆分训练集、测试集
+        (2) filter
+        (3) 处理fid, label并返回
 """
 class DataSource():
     """ 从文件，还是从sqlite3读取
@@ -19,50 +26,102 @@ class DataSource():
         self.test_queue = Queue()
         self.is_finished = False
         self.conf = conf
+        self.filter_count = {}
+        self.lkey = 'next_7d_14d_mean_price'
+        self.date2label = sql_api.read_date_avg_label(self.lkey)
+        self.slot_num = None  #保证所有slot数量一致
+        # slot白名单
+        self.slot_whitelist = [int(n) for n in str(self.conf.data.get("slot_whitelist", '')).split(',') if n != ""]
+        self.slot_blacklist = [int(n) for n in str(self.conf.data.get("slot_blacklist", '')).split(',') if n != ""]
+
+        logging.info("slot_whitelist: %s(为空表示不生效)" %(self.slot_whitelist))
+        logging.info("slot_blacklist: %s(为空表示不生效)" %(self.slot_blacklist))
+        # mprint(self.date2label)
         threading.Thread(target=self.thread_func).start()
         pass
+    def filter(self, item):
+        if self.lkey not in item.label:
+            key = f"label_not_exist({self.lkey})"
+            self.filter_count[key] = self.filter_count.get(key, 0) +1
+            return True
+        return False
 
-    def thread_func(self):
+    def post_process(self, ins):
+        fids = []
+        date = ins.date 
+        try:
+            label = ins.label[self.lkey] - self.date2label[date] # 除去平均label 
+        except Exception as e:
+            logging.error("出错: %s, 可能是每日平均label不存在: %s" %(e, date))
+            os._exit(0)
+        
+        for f in ins.feature:
+            assert len(f.fids) == 1, "fids !=0"
+            fid = f.fids[0]
+            slot = fid >> 54
+            if len(self.slot_whitelist) > 0 and slot not in self.slot_whitelist:
+                # 白名单有定义且不在白名单之内
+                continue
+            if len(self.slot_blacklist) > 0 and slot in self.slot_blacklist:
+                # 在黑名单内
+                continue
+            fids.append(fid) 
+        # 需要保证所有样本的slot一致
+        if True:
+            slots = set([f >> 54 for f in fids])
+            if self.slot_num is None:
+                self.slot_num = len(slots) 
+            assert len(slots) == self.slot_num , "slot数量不一致 %s != %s" %(len(slots), len(self.slot_num))
+
+        return fids, label, ins
+    def enum_instance(self):
+        print("enum_instance未实现")
         raise NotImplementedError
 
-    def get_train_data(self):
-        while not self.train_queue.empty() or self.is_finished == False:
-            if self.train_queue.empty():
+    def next(self, is_train = True):
+        queue = self.train_queue if is_train else self.test_queue
+        while not queue.empty() or self.is_finished == False:
+            if queue.empty():
+                # print("获取训练数据为空, 等待读取新数据...")
                 time.sleep(0.1)
                 continue
-            yield self.train_queue.get()
+            return queue.get()
+        return None
+    def next_train(self):
+        return self.next(is_train= True)
+    def next_test(self):
+        return self.next(is_train = False)
+    def get_train_data(self):
+        while True:
+            item = self.next(is_train = True)
+            if item is not None:
+                yield item
+            else:
+                break
         return 
 
     def get_test_data(self):
-        while not self.test_queue.empty() or self.is_finished == False:
-            if self.test_queue.empty():
-                time.sleep(0.1)
-                continue
-            yield self.test_queue.get()
+        while True:
+            item = self.next(is_train = False)
+            if item is not None:
+                yield item
+            else:
+                break
         return 
-class DataSourceFile(DataSource):
-    def __init__(self, conf):
-        super().__init__(conf)
-
-    def post_process(self, item):
-        input = []
-        label = item.label
-        for f in item.feature:
-            assert len(f.fids) == 1, "fids !=0"
-            input.append(f.fids[0])
-        return input, label
-
     def thread_func(self):
         conf = self.conf
-        dedup = set()
         for e in range(conf.data.epoch):
-            max_ins =  1e10 if conf.data.get("max_ins") is None else conf.data.max_ins
-            for ins in enum_instance(conf.data.files, max_ins = max_ins, disable_tqdm = True):
+            dedup = set()
+            for ins in self.enum_instance():
                 date = ins.date 
                 if (ins.date, ins.ts_code) in dedup:
                     continue
                 dedup.add((ins.date, ins.ts_code))
-                item = self.post_process(ins)  # 修正这里
+                if self.filter(ins):
+                    continue
+                item = self.post_process(ins)  
+                # if len(set(["2427379723444939871", 2422899029155717707, 2423052998401735631]) & set(item[0])) == 0:
+                #     continue
                 if date <= conf.data.train_test_date:
                     self.train_count += 1 
                     self.train_queue.put(item)
@@ -70,17 +129,30 @@ class DataSourceFile(DataSource):
                     if e == 0:
                         self.test_count += 1
                         self.test_queue.put(item)  # 修正这里
-        print("训练集数量: %s, %s" % (self.train_count, self.train_queue.qsize()))
-        print("测试集数量: %s %s" % (self.test_count, self.test_queue.qsize()))
-        print("总数据量: %s" %(self.train_count + self.test_count))
+        logging.info("[data_source] 过滤: %s" %(self.filter_count))
+        logging.info("[data_source]训练集数量: %s, 队列中剩余%s" % (self.train_count, self.train_queue.qsize()))
+        logging.info("[data_source]测试集数量: %s 队列中剩余%s" % (self.test_count, self.test_queue.qsize()))
+        logging.info("[data_source]总数据量: %s" %(self.train_count + self.test_count))
         self.is_finished = True
+        return 
+class DataSourceFile(DataSource):
+    def __init__(self, conf):
+        super().__init__(conf)
+    def enum_instance(self):
+        conf = self.conf
+        max_ins =  1e10 if conf.data.get("max_ins") is None else conf.data.max_ins
+        for ins in enum_instance(conf.data.files, max_ins = max_ins, disable_tqdm = True):
+            yield ins
         return 
         
 
 if __name__ == "__main__":
+    from train.resource_manager import RM
     """python -m train.data_source"""
     print("多线程train.yaml中读取 data.files, ")
     file_source = DataSourceFile(RM.conf)
-    for item in file_source.get_train_data():
-        print(item)
+    for fids, label, ins in file_source.get_train_data():
+        # print(ins)
+        print(fids)
+        print(label)
         input("..")

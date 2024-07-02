@@ -1,0 +1,18 @@
+log_file : "../log/train_v2.log"
+
+data:
+  # (1) 执行 python -m train.update_avg_label_table 更新每天的平均label
+  # (2) 执行 python -m train.train_v2, 数据训练
+  
+  files:
+    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
+    # - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
+    # - ../training_data/data.daily.20240614_1505
+  max_ins : 1217  # debug用
+
+  ##### data_source.py中用到
+  # src: files
+  train_test_date : "20240101"  # 这个时间之前的都是训练集合
+  epoch : 30
+  slot_whitelist : 134
+  # slot_blacklist : 2

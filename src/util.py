@@ -1,9 +1,57 @@
 import logging
 from datetime import datetime, timedelta 
 import struct
+import math
 # 在其他包之前配置basicConfig
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+import time
+from collections import defaultdict
 
+class MeanCounter:
+    """ 用于计算数组的avg, 每次添加一个val，同时保存sum(val)和count(*)
+    example: 
+        counter = MeanCounter()
+        counter.add('a', 'salary', 1000)
+        counter.add('a', 'salary', 2000)
+        print(counter.count['a']['salary'])
+        exit(0)
+    """
+    def __init__(self):
+        self.count = {}#'fid': defaultdict(lambda: [0, 0]), 'date': defaultdict(lambda: [0, 0])}
+    
+    def add(self, section, key, v):
+        if section not in self.count:
+            self.count[section] = defaultdict(lambda: [0, 0])
+        # return 
+        self.count[section][key][0] += 1
+        self.count[section][key][1] += v
+
+    def get_avg(self, section):
+        if section not in self.count:
+            return {}
+        avg_dict = {}
+        for k, (count, sum_val) in self.count[section].items():
+            avg_dict[k] = (sum_val / count, count)
+        del self.count[section]
+        return avg_dict
+class Latency:
+    def __init__(self):
+        self.start_time = time.time()
+    def count(self):
+        elapsed_time = time.time() - self.start_time  # 计算并返回经过的时间
+        self.start_time = time.time()  # 重置start_time为当前时间，如果需要连续测量，则这行可选
+        return elapsed_time
+#静态类
+class Counter:
+    data = {}  # 使用类变量存储计数数据
+
+    @staticmethod
+    def add(key, val=1):
+        Counter.data[key] = Counter.data.get(key, 0) + val
+
+    @staticmethod
+    def get(key):
+        return Counter.data.get(key, 0)  # 返回键对应的计数，若键不存在则返回0
 def get_memory_usage():
     import psutil
     process = psutil.Process()
@@ -35,7 +83,7 @@ def enum_instance(path, max_ins = 1e10, disable_tqdm = False):
     from tqdm import tqdm
     if not isinstance(path, list):
         path = [path]
-    bar = tqdm(total = 2000000)
+    bar = tqdm(total = 2000000) if not disable_tqdm else None
     hash_set = set()
     for p in path:
         f = open(p, "rb")
@@ -91,6 +139,16 @@ def date_diff(date_str1, date_str2):
     date_diff = (date2 - date1).days
     return date_diff
 
+def f3(data):
+    """保留3位有效小数, x为数组/数字都可以
+    """
+    def _f3(f):
+        print("f=%s" %(f))
+        return int(f*1000)/1000
+    if isinstance(data, list):
+        return [_f3(i) for i in data] 
+    else:
+        return _f3(data)
 if __name__ == "__main__":
     print()
     # print(get_date(-1))
