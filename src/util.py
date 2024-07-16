@@ -6,7 +6,52 @@ import math
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 import time
 from collections import defaultdict
+import json 
+from utils3 import mprint
 
+class Decorator:
+    """统计函数执行时间
+    example:
+        # 示例函数
+        @Decorator.timing
+        def example_function():
+            time.sleep(2)
+        # 调用示例函数
+        example_function()
+        Decorator.stat()
+    """
+    # 定义静态成员变量
+    time_elapsed = {}
+
+    @staticmethod
+    def timing(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            # 将执行时间存储到静态成员变量中
+            Decorator.time_elapsed[func.__name__] = Decorator.time_elapsed.get(func.__name__, 0) +execution_time
+            return result
+        return wrapper
+
+    @staticmethod
+    def timing_stat():
+        total = sum(Decorator.time_elapsed.values())
+        items = []
+        for key, val in Decorator.time_elapsed.items():
+            items.append({
+                "Func": key, 
+                "TimeElapsed": "%.2f秒" % val,
+                "ratio": "%.2f%%" % (val / total * 100)
+            })
+        items.append({
+            "Func": "Total",
+            "TimeElapsed": "%.2f秒" % total,
+            "ratio": "100%"
+        })
+        mprint(items)
+        return 
 class MeanCounter:
     """ 用于计算数组的avg, 每次添加一个val，同时保存sum(val)和count(*)
     example: 
@@ -35,12 +80,19 @@ class MeanCounter:
         del self.count[section]
         return avg_dict
 class Latency:
+    """
+        latency = Latency()
+        latency.count()  # 计算耗时
+        latency.clear()  # 重新计时
+    """
     def __init__(self):
         self.start_time = time.time()
     def count(self):
         elapsed_time = time.time() - self.start_time  # 计算并返回经过的时间
-        self.start_time = time.time()  # 重置start_time为当前时间，如果需要连续测量，则这行可选
         return elapsed_time
+    def reset(self):
+        self.start_time = time.time()  # 重置start_time为当前时间，如果需要连续测量，则这行可选
+        return 
 #静态类
 class Counter:
     data = {}  # 使用类变量存储计数数据
@@ -56,7 +108,7 @@ def get_memory_usage():
     import psutil
     process = psutil.Process()
     memory_info = process.memory_info()
-    memory_usage = memory_info.rss  # 获取实际物理内存占用，单位为字节
+    memory_usage = memory_info.rss  # 获取实际物理内存占用，单位为字节 /vms获取包括虚拟内存的
     memory_usage_mb = memory_usage / (1024 * 1024)  # 转换为MB 
     # print(f"当前内存占用：{memory_usage_mb} MB")
     return memory_usage_mb
@@ -149,7 +201,33 @@ def f3(data):
         return [_f3(i) for i in data] 
     else:
         return _f3(data)
+class NumpyEncoder(json.JSONEncoder):
+    """ Custom encoder for numpy data types """
+    def default(self, obj):
+        import numpy as np
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return super(NumpyEncoder, self).default(obj)
+
 if __name__ == "__main__":
-    print()
-    # print(get_date(-1))
-    get_memory_usage()
+    latency = Latency()
+    print(latency.count())
+    print(latency.count())
+    # @Decorator.timing
+    # def example_function():
+    #     time.sleep(2)
+    # # 调用示例函数
+    # example_function()
+    # Decorator.stat()
+    # exit(0)
+    # # print()
+    # # print(get_date(-1))
+    # # get_memory_usage()
+    # is_support_gpu()
+    # for ins in enum_instance("/Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124"):
+    #     pass

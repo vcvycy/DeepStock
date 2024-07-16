@@ -20,7 +20,13 @@ def update_fid_and_date_avg_label():
         input(f"样本数不完全: max_ins={max_ins}, 即调试模式，回车继续...")
     ins_num = 0
     valid_keys = ['next_7d_14d_mean_price']#, 'next_3d_close_price']
-    for ins in enum_instance(conf.data.files, max_ins=max_ins, disable_tqdm = True):
+
+    RM.conf.data.label.sub_avg_label = False   # 不去取平均label
+    while True:
+        item  = RM.data_source.next_train() or RM.data_source.next_test()
+        if item is None:
+            break
+        ins = item[2]
         ins_num += 1 
         label_keys = label_keys.union(set(ins.label.keys()))
         label = ins.label

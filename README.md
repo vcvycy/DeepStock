@@ -15,6 +15,8 @@ echo "source $(pwd)/env.sh" >> ~/.bashrc
 
 # 模型训练
 
-# 关于Loss
+## 关于Loss
   对于稠密fid，假设一个batch这个fid出现100次, 那么使用MSE(reduction="mean")更好，否则梯度累计起来，直接爆炸
-  对于稀疏fid，假设一个batch这个fid出现1次, 那么使用MSE(reduction="sum")更好，否则 grad = grac/batch_size，梯度直接没了
+  对于稀疏fid，假设一个batch这个fid出现1次, 那么使用MSE(reduction="sum")更好，否则 grad = grac/batch_size，梯度直接
+## 关于shuffle
+    训练数据不shuffle，会导致出现问题：由于越靠后的梯度越重要，如果负样本集中在后面，就会导致被后面的负样本主导。

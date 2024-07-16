@@ -29,15 +29,15 @@ fi
 # rm $sql_define
 # echo "[*] 准备生成sqlalchemy格式的数据, 写到$DB_FILE -> $sql_define"
 # sqlacodegen sqlite:///$DB_FILE > $sql_define
-# rm db.stock
+# rm stock.db
 # echo "[*] 当前路径: $(pwd)"
-# # 检查SQLite3数据库文件 "db.stock" 是否存在。如果不存在，则创建数据库并执行 "init.sql" 文件。  
-# if [ ! -f "db.stock" ]; then
+# # 检查SQLite3数据库文件 "stock.db" 是否存在。如果不存在，则创建数据库并执行 "init.sql" 文件。  
+# if [ ! -f "stock.db" ]; then
 #     echo "[*] 数据库文件不存在，创建数据库并执行初始化脚本..."
 #     # 创建数据库文件
-#     touch db.stock
+#     touch stock.db
 #     # 创建表和执行初始化脚本
-#     sqlite3 db.stock < init.sql
+#     sqlite3 stock.db < init.sql
 #     echo "  [*] 数据库创建完成并初始化成功！"
 # else
 #     echo "[*] 数据库文件已存在，无需创建。"

@@ -2,7 +2,7 @@
 
 export STOCK_HOME=/Users/jianfeng/Documents/DeepStock
 # 数据库目录
-export DB_FILE=$STOCK_HOME/run/db.stock         
+export DB_FILE=$STOCK_HOME/run/stock.db         
 # python import查找路径
 export PYTHONPATH=$PYTHONPATH:$STOCK_HOME/src   
 # 不生成pyc

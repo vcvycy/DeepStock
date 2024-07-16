@@ -3,16 +3,52 @@ log_file : "../log/train_v2.log"
 data:
   # (1) 执行 python -m train.update_avg_label_table 更新每天的平均label
   # (2) 执行 python -m train.train_v2, 数据训练
-  
+  disable_tqdm : false
+  filters: 
+    enable: true
+    only_etf: false
+    valid_tscode : 
+      enable : true
+      regexp: "^[036]0"             # [正则]创业板: ^30; 主板: ^[06]0 科创板: ^68
+    fid_filter:
+      enable: true
+      fids:
+        - 958543753377806055 # 过滤掉平均跌幅2%的FID
+        - 967566788535408665
+        - 964283573987336748
+        - 957627231141167737
+        - 960528837522894319
+        # v2
+        - 39809429394224871
+        - 74921704176550521
+        - 75838226413188839
+        - 81578047022719532
+        - 73256294007194698
+        - 92936102686032505
+        - 99592445532201516
+        - 91270692516676682
+        - 928254776968372780
+        - 938942996155189327
+        - 973976219481293898
   files:
     - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
+    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240703_1906
     # - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
     # - ../training_data/data.daily.20240614_1505
-  max_ins : 1217  # debug用
+  label : 
+    key : next_7d_14d_mean_price
+    sub_avg_label : True
+  # max_ins : 100000  # debug用
 
   ##### data_source.py中用到
   # src: files
-  train_test_date : "20240101"  # 这个时间之前的都是训练集合
-  epoch : 30
-  slot_whitelist : 134
+  train_test_date : "20240301"  # 这个时间之前的都是训练集合
+  epoch : 5
+  # slot_whitelist : 134
   # slot_blacklist : 2
+train:
+  learning_rate : 0.0001
+  batch_size: 1000
+  loss : distill
+  fid_embedding:
+    l1_lambda: 0.001
