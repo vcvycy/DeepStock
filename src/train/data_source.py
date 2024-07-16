@@ -30,7 +30,7 @@ class DataSource():
         self.filter_reason = {}
         self.lkey = conf.data.label.key
         self.date2label = sql_api.read_date_avg_label(self.lkey)
-        self.slot_num = None  #保证所有slot数量一致
+        self._slot_num = None  #保证所有slot数量一致
         # slot白名单
         self.slot_whitelist = [int(n) for n in str(self.conf.data.get("slot_whitelist", '')).split(',') if n != ""]
         self.slot_blacklist = [int(n) for n in str(self.conf.data.get("slot_blacklist", '')).split(',') if n != ""]
@@ -40,6 +40,11 @@ class DataSource():
         # mprint(self.date2label)
         threading.Thread(target=self.thread_func).start()
         pass
+    @property
+    def slot_num(self):
+        while self._slot_num is None:
+            time.sleep(0.1)
+        return self._slot_num
     def filter(self, item):
         fids, label, ins = item
         filters = self.conf.data.filters
@@ -104,9 +109,9 @@ class DataSource():
         # 需要保证所有样本的slot一致
         if True:
             slots = set([f >> 54 for f in fids])
-            if self.slot_num is None:
-                self.slot_num = len(slots) 
-            assert len(slots) == self.slot_num , "slot数量不一致 %s != %s" %(len(slots), len(self.slot_num))
+            if self._slot_num is None:
+                self._slot_num = len(slots) 
+            assert len(slots) == self._slot_num , "slot数量不一致 %s != %s" %(len(slots), len(self._slot_num))
         fids.sort(key = lambda fid : fid >> 54)
         return fids, label, ins
     def enum_instance(self):
