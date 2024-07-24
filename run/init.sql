@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS stock_daily_table (
 );
 -- 模型训练
 CREATE TABLE  IF NOT EXISTS date_avg_label_table (
+    -- 每天的平均label
     date TEXT,
     key TEXT,       -- label的key
     count INTEGER,
@@ -84,10 +85,14 @@ CREATE TABLE  IF NOT EXISTS date_avg_label_table (
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (date, key)
 );
-CREATE TABLE IF NOT EXISTS fid_avg_label_table (
+CREATE TABLE IF NOT EXISTS fid_avg_label_table ( 
+    -- fid的平均label
+    slot INTEGER,
     fid INTEGER,
-    key TEXT,       -- label的key
-    count INTEGER,
+    key TEXT,       -- label的key, 如next_7d_14d_mean_price
+    raw_feature TEXT,
+    extracted_features TEXT,
+    count INTEGER,  -- 出现频次
     avg_label REAL,
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (fid, key)

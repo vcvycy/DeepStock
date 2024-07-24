@@ -13,6 +13,9 @@ from datetime import datetime
 from train.fid_embedding import fidembeding
 import json
 
+import torch.nn.init as init
+
+
 class StockIterableDataset(IterableDataset):
     """输入 fids  = [3234, 46457, 6745, ...]
        返回: embedding = {slot1 : torch.tensor(dim = 128), slot2: torch.tensor(dim = 124), ...}
@@ -68,28 +71,35 @@ class LRModel(nn.Module):
         embeddings = []
         # test_count = 0
         for fids in fids_batch:
-            embeddings.append(torch.cat([fidembeding.get_embedding(fid, 4) for fid in fids])) 
+            embeddings.append(torch.cat([fidembeding.get_embedding(fid, 1) for fid in fids])) 
         embeddings = torch.stack(embeddings).to(RM.device)
-        output = torch.sum(embeddings, dim=1)
+        logits = torch.sum(embeddings, dim=1)
         
-        prediction = output 
+        prediction = logits 
         if self.first_time:
-            logging.info(f"LRModel: embeddings({embeddings.shape}), output({output.shape})")
+            logging.info(f"LRModel: embeddings({embeddings.shape}), logits({logits.shape})")
             self.first_time = False
         return prediction.squeeze()  # 确保预测值的尺寸与标签的尺寸一致
+    def post_process(self, *args, **kwargs):
+        pass
 
 class DNNModel(nn.Module):
     """ 逻辑回归
     """
     def __init__(self):
+        def initialize_weights(m):
+            if isinstance(m, nn.Linear):
+                init.kaiming_uniform_(m.weight)
+                m.bias.data.fill_(0)
         from torch.nn import Linear
         from torch.nn import ReLU
         super(DNNModel, self).__init__()
         self.first_time = True
+        self.fid_dims = 4
         # 添加一些初始参数
         self.dummy = nn.Parameter(torch.zeros(1, requires_grad=True,  device=RM.device))
         hidden_dims=[16, 8]
-        input_dims = 264
+        input_dims = self.fid_dims * RM.data_source.slot_num
         self.layers = nn.Sequential(
             Linear(input_dims, hidden_dims[0]),  # 第一隐藏层
             ReLU(),                             # 激活函数
@@ -97,41 +107,41 @@ class DNNModel(nn.Module):
             ReLU(),                             # 激活函数
             Linear(hidden_dims[1], 1)   # 输出层
         )
+        self.layers.apply(initialize_weights)
     @Decorator.timing
     def forward(self, fids_batch):
         embeddings = []
         # test_count = 0
         bias_list = []
         for fids in fids_batch:
-            embedding = [fidembeding.get_embedding(fid, 4, include_bias = True, device =RM.device) for fid in fids]
+            embedding = [fidembeding.get_embedding(fid, self.fid_dims, include_bias = True, device =RM.device) for fid in fids]
             bias_list.append(torch.cat([b for w, b in embedding]))
             embeddings.append(torch.cat([w for w, b in embedding])) 
         embeddings = torch.stack(embeddings).to(RM.device)
-        # output = torch.sum(embeddings, dim=1)
+        
+        RM.emit_summary("dnn_input", embeddings, step =  RM.step)
         self.nn_out = self.layers(embeddings).squeeze()  
-        self.bias_sum = torch.sum(torch.stack(bias_list), dim=1)
-        # print(self.nn_out.shape)
-        # print(self.bias_sum.shape)
-        # import os
-        # os._exit(0)
-        prediction =  self.nn_out + self.bias_sum
+        self.bias_sum = torch.mean(torch.stack(bias_list), dim=1)
+        prediction =   self.bias_sum +self.nn_out 
         if self.first_time:
-            logging.info(f"DNNModel: embeddings({embeddings.shape}), output({self.nn_out.shape})")
+            logging.info(f"DNNModel: embeddings({embeddings.shape}), logits({self.nn_out.shape})")
             self.first_time = False
         return prediction.squeeze()  
 
-    def emit_dnn(self, step):
+    def post_process(self, step):
         layers = self.layers
         # 遍历并记录权重和偏置
         with torch.no_grad():
             for idx, layer in enumerate(layers):
                 if isinstance(layer, nn.Linear):  # 检查是否为线性层
-                    tag_base = f"layers/{idx}/"
+                    tag_base = f"dnn/layer_{idx}/"
                     RM.emit_summary(tag_base + "weight", layer.weight, step)
-                    RM.emit_summary(tag_base + "weight/grad", layer.weight.grad, step)
+                    if layer.weight.grad is not None:
+                        RM.emit_summary(tag_base + "weight/grad", layer.weight.grad, step)
                     RM.emit_summary(tag_base + "bias", layer.bias, step)
-            RM.emit_summary("output/bias_sum", self.bias_sum, step)
-            RM.emit_summary("output/nn_out", self.nn_out, step)
+                
+            RM.emit_summary("logits/bias_sum", self.bias_sum, step)
+            RM.emit_summary("logits/nn_out", self.nn_out, step)
         return 
 
 @Decorator.timing
@@ -170,53 +180,44 @@ def validate(model):
     logging.info("预估结果保存到: %s, 数量: %s" %(save_file, len(results)))
     open(save_file, "w").write(json.dumps(final_result, cls=NumpyEncoder, indent = 4, ensure_ascii=False))
     return 
-# @Decorator.timing
+
+@Decorator.timing
+def backward(loss):
+    loss.backward()
+
+@Decorator.timing
+def opt_step(opt):
+    opt.step()
+
+@Decorator.timing
 def main():
     latency = Latency()
-    model = DNNModel().to(RM.device)
+    model = LRModel().to(RM.device)
     batch_size = RM.conf.train.batch_size
     train_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_train), batch_size=batch_size, collate_fn=custom_collate)
 
     data = []
-    step =0 
-    learning_rate = batch_size = RM.conf.train.learning_rate
+    RM.step = 0 
+    learning_rate  = RM.conf.train.learning_rate
     logging.info("lr: %s bs: %s" %(learning_rate, batch_size))
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    # optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
     for fids, label, _ in train_data:
-        # input("fids: %s" %(fids))
-        step +=1
-        # if step == 100:
-        #     break
+        RM.step +=1
+        step = RM.step
         optimizer.zero_grad()  # 清零梯度
         prediction = model(fids)
-        # print("device : %s" %(prediction.device))
-        # print("prediction: %s" %(prediction))
         loss = F.mse_loss(prediction, label.to(RM.device), reduction='sum')  # mean reduction，会导致低频的fid的梯度被大幅度降低, 所以fid单独拆出去
-
-        loss.backward()  # 计算梯度
-        item = {
-            # "pred" : prediction[0].item(),
-            # "pred_grad" : prediction[0].grad,
-            "round" : len(data),
-            "loss" : loss.item(),
-            "embed" : len(list(model.parameters()))
-        }
+        backward(loss)# loss.backward() 
         # if 2422899029155717707 in fids:
         #     logging.info("fid: %s, label: %s, prediction: %s" %(model.fid2embedding[fid][0].item(), label, prediction))
-        if step %10 == 1:
-            logging.info("step[%s] loss = %s; Latency: %.2fs train/test_queue: %s/%s" %(step, loss.item(), latency.count(),  RM.data_source.train_queue.qsize(), RM.data_source.test_queue.qsize()))
+        if step %100 == 1:
+            Decorator.timing_stat() # 计算耗时
+            logging.info("step[%s] loss = %.3f; Latency: %.2fs train/test_queue: %s/%s" %(step, loss.item(), latency.count(),  RM.data_source.train_queue.qsize(), RM.data_source.test_queue.qsize()))
         RM.emit_summary('prediction', prediction, step)
         RM.emit_summary('label', label, step)
         RM.emit_summary('loss', loss, step)
-        # for fid in fidembeding.fid2embedding:  # 只适用于LR模型
-        #     embed = fidembeding.fid2embedding[fid]
-        #     item[fid] = "v:%.4f;g:%.4f" %(embed.item(), embed.grad[0].item())
-        #     writer.add_scalar("slot_%s/fid_%s" %(int(fid)>>54, fid), embed, step)
-        # logging.info("embedding数量: %s" %(len(model.fid2embedding)))
-        model.emit_dnn(step)
-        data.append(item)
-        optimizer.step()  # 更新参数
+        model.post_process(step)
+        opt_step(optimizer)# optimizer.step()  # 更新参数
         fidembeding.update_embedding(fids, step)
     
     # mprint(model.state_dict(), title = "模型dense state_dict权重")

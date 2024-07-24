@@ -1,5 +1,5 @@
 from easydict import EasyDict
-from util import enum_instance
+from util import enum_instance, Decorator
 import yaml, logging
 import torch
 import time
@@ -11,6 +11,7 @@ class _RM:
         self._data_source = None  # 初始化为None
         self._device = None
         self._summary_writer  = None
+        self.step = 0
     
     @property
     def summary_writer(self):
@@ -20,11 +21,14 @@ class _RM:
             logging.info("tensorboard writer dir: %s" %(writer_dir)) 
             self._summary_writer = SummaryWriter(writer_dir)
         return self._summary_writer
+    @Decorator.timing
     def emit_summary(self, name, tensor, step):
         # TensorBoard记录平均值和直方图
         mean = torch.mean(tensor)
         self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)
-        self.summary_writer.add_histogram(name, tensor, global_step=step)
+        if tensor.numel() > 1:
+            self.summary_writer.add_scalar(f'{name}/var', tensor.var(), global_step=step)
+        # self.summary_writer.add_histogram(name, tensor, global_step=step)
         return
     @property
     def data_source(self):
@@ -52,6 +56,7 @@ if __name__ == "__main__":
     """
     print(RM.conf) 
     # RM.read_avg_label_table()
-    for item in RM.data_source.get_train_data():
-        # input(item)
-        pass
+    # for item in RM.data_source.get_train_data():
+    #     # input(item)
+    #     pass
+    print("slotNum: %s" %(RM.data_source.slot_num))

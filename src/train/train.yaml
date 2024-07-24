@@ -38,17 +38,19 @@ data:
   label : 
     key : next_7d_14d_mean_price
     sub_avg_label : True
-  # max_ins : 100000  # debug用
 
   ##### data_source.py中用到
   # src: files
   train_test_date : "20240301"  # 这个时间之前的都是训练集合
-  epoch : 5
-  # slot_whitelist : 134
+  epoch : 1
+  max_ins : 100000  # debug用
+  slot_whitelist : 134
   # slot_blacklist : 2
 train:
   learning_rate : 0.0001
   batch_size: 1000
   loss : distill
   fid_embedding:
-    l1_lambda: 0.001
+    weight_decay : 0.0001
+    learning_rate : 0.1
+    variance : 0.0005      # 初始化方差, 在DNN中Kaiming_Normal，prediction的方差会和初始化方差差不多

@@ -29,7 +29,7 @@ class DataSource():
         self.conf = conf
         self.filter_reason = {}
         self.lkey = conf.data.label.key
-        self.date2label = sql_api.read_date_avg_label(self.lkey)
+        self._date2label = None 
         self._slot_num = None  #保证所有slot数量一致
         # slot白名单
         self.slot_whitelist = [int(n) for n in str(self.conf.data.get("slot_whitelist", '')).split(',') if n != ""]
@@ -40,6 +40,11 @@ class DataSource():
         # mprint(self.date2label)
         threading.Thread(target=self.thread_func).start()
         pass
+    @property
+    def date2label(self):
+        while self._date2label is None:
+            self._date2label = sql_api.read_date_avg_label(self.lkey)
+        return self._date2label
     @property
     def slot_num(self):
         while self._slot_num is None:
@@ -103,9 +108,9 @@ class DataSource():
                 continue
             fids.append(fid) 
             # 减少内存占用
-            f.ClearField("raw_feature")
-            f.ClearField("extracted_features")
-        ins.ClearField("label")
+            # f.ClearField("raw_feature")
+            # f.ClearField("extracted_features")
+        # ins.ClearField("label")   # 清除会导致update_avg_label_table无法读取label
         # 需要保证所有样本的slot一致
         if True:
             slots = set([f >> 54 for f in fids])

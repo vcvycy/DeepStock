@@ -130,7 +130,7 @@ def update_date_avg_label_table(date2label_count):
         logging.error("[update_date_avg_label_table] failed: %s" % e)
     return
 
-def update_fid_avg_label(fid2label_count):
+def update_fid_avg_label(fid2label_count, fid2feature):
     """ 更新fid_avg_label_table表
     """
     # 将fid2label_count转换为DataFrame
@@ -138,7 +138,17 @@ def update_fid_avg_label(fid2label_count):
     for fid_and_key, label_and_count in fid2label_count.items():
         fid, key = fid_and_key 
         avg_label,count = label_and_count
-        data.append({'fid': fid, 'key': key, 'avg_label': avg_label, 'count': count})
+        feature = fid2feature[fid]
+        item = {
+            'slot': fid>>54,
+            'fid': fid, 
+            'key': key, 
+            'avg_label': avg_label, 
+            'count': count,
+            'raw_feature' : ", ".join(feature.raw_feature),
+            'extracted_features' : ", ".join(feature.extracted_features),
+        }
+        data.append(item)
     df = pd.DataFrame(data)
     try:
         write_table_with_dataframe("fid_avg_label_table", df, if_exists='replace', add_update_time=True)
@@ -161,7 +171,7 @@ def read_date_avg_label(key=None):
         date_avg_label = {row['date']: row['avg_label'] for row in result}
         return date_avg_label
 
-def read_fid_avg_label(key=None):
+def read_fid_avg_label(key=None, raw = False):
     """ 指定key返回 fid -> avg_label """
     if key is None:
         # 获取所有可用的 key
@@ -171,8 +181,10 @@ def read_fid_avg_label(key=None):
         exit(0)
     else:
         # 根据指定的 key 获取 fid -> avg_label
-        query = "SELECT fid, avg_label FROM fid_avg_label_table WHERE key = ?"
+        query = "SELECT * FROM fid_avg_label_table WHERE key = ?"
         result = simple_execute(query, to_dict=True, params=(key,))
+        if raw:
+            return result
         fid_avg_label = {row['fid']: row['avg_label'] for row in result}
         return fid_avg_label
 if __name__ == "__main__":

@@ -106,12 +106,13 @@ class Counter:
         return Counter.data.get(key, 0)  # 返回键对应的计数，若键不存在则返回0
 def get_memory_usage():
     import psutil
-    process = psutil.Process()
+    import os
+    pid = os.getpid()
+    process = psutil.Process(pid)
     memory_info = process.memory_info()
-    memory_usage = memory_info.rss  # 获取实际物理内存占用，单位为字节 /vms获取包括虚拟内存的
-    memory_usage_mb = memory_usage / (1024 * 1024)  # 转换为MB 
-    # print(f"当前内存占用：{memory_usage_mb} MB")
-    return memory_usage_mb
+    # return str(memory_info)
+    memory_usage = memory_info.rss /2**20  # 获取实际物理内存占用，单位为字节 /vms获取包括虚拟内存的=
+    return memory_usage
 
 def read_file_with_size(f, PBClass = None):
     data_size_bin = f.read(8)
