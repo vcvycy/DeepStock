@@ -20,6 +20,8 @@ alias stock_train="cd $STOCK_HOME/src;python -m train.train_v2"
 alias stock_update_train_avg_label="cd $STOCK_HOME/src; python -m train.update_avg_label_table"  # fid和date的平均label
 alias stock_show_fid_avg_label="cd $STOCK_HOME/src; python -m train.update_avg_label_table --show"
 alias stock_train_analyse="cd $STOCK_HOME/src;python -m train.analyse"   # 
+
+alias stock_tensorboard="cd $STOCK_HOME/src; tensorboard --logdir=runs"
 cat <<EOF
  可使用的命令:
     训练相关: 

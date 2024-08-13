@@ -7,6 +7,40 @@ import torch.nn as nn
 from train.resource_manager import RM
 import logging
 import math
+class FidIndex:
+    f2i = {}
+    i2f = {}
+    @staticmethod
+    def to_index(fids):
+        if isinstance(fids, list):
+            return [FidIndex.to_index(fid) for fid in fids]
+        elif isinstance(fids, int):
+            f = fids
+            f2i = FidIndex.f2i
+            i2f = FidIndex.i2f
+            if f not in f2i:
+                index = len(f2i) + 1
+                f2i[f] =index
+                i2f[index] = f
+            return f2i[f]
+        else:
+            raise Exception("fid must be int or list")
+        return 
+    def to_fid(indexs):
+        f2i = FidIndex.f2i
+        i2f = FidIndex.i2f
+        if isinstance(indexs, list):
+            return [FidIndex.to_fid(index) for index in indexs]
+        elif isinstance(indexs, int):
+            index = indexs
+            if index not in i2f:
+                raise Exception("index not in i2f")
+            return i2f[index]
+        else:
+            raise Exception("index must be int or list")
+        return 
+
+
 class FidEmbedding():
     """ FidEmbeding 为什么要单独拆出来：
         假设: batch_size =1000, 但是某个fid 在batch中只出现了10次,那么计算MSE的时候,这个fid的梯度会/batch_size,导致梯度消失。
@@ -67,5 +101,26 @@ class FidEmbedding():
         for emb in self.fid2embedding.values():
             emb.grad.zero_()
         return 
+
+class FidEmbeddingV2(nn.Module):
+    def __init__(self):
+        estimated_fid_num = 500  # 预计有500个fid
+        estimated_dims = 100     # 预计有100个维度
+        self.fte = nn.Parameter(torch.randn(estimated_fid_num, estimated_dims))
+        self.fbias = nn.Parameter(torch.zeros(estimated_fid_num), requires_grad = True)
 # 初始化全局Instance
 fidembeding = FidEmbedding()
+
+if __name__ == "__main__":
+    def test_fid_index():
+        fids = [
+            [12,3,4,5],
+            [23,3,435,1]
+        ]
+        idxs = FidIndex.to_index(fids)
+        fids2 = FidIndex.to_fid(idxs)
+        print(idxs)
+        print(fids2)
+        return 
+
+    test_fid_index()

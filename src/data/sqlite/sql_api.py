@@ -123,9 +123,11 @@ def update_date_avg_label_table(date2label_count):
         avg_label, count = label_and_count
         data.append({'date': date, 'key': key, 'avg_label': avg_label, 'count': count})
     df = pd.DataFrame(data)
+    logging.info(f"每日平均label样例(总数:{df.shape[0]}):")
+    print(df.head(3))
     try:
         write_table_with_dataframe("date_avg_label_table", df, if_exists='replace', add_update_time=True)
-        logging.info("[update_date_avg_label_table] success, 数据量: %s" % (df.shape[0]))
+        logging.info("[update_date_avg_label_table] success, 写入sql行数: %s" % (df.shape[0]))
     except Exception as e:
         logging.error("[update_date_avg_label_table] failed: %s" % e)
     return
@@ -181,7 +183,7 @@ def read_fid_avg_label(key=None, raw = False):
         exit(0)
     else:
         # 根据指定的 key 获取 fid -> avg_label
-        query = "SELECT * FROM fid_avg_label_table WHERE key = ?"
+        query = "SELECT * FROM fid_avg_label_table WHERE key='train_label' or key = ?"
         result = simple_execute(query, to_dict=True, params=(key,))
         if raw:
             return result

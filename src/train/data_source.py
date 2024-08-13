@@ -1,6 +1,6 @@
 from easydict import EasyDict
 from util import enum_instance
-from utils3 import mprint
+from utils3 import mprint, coloring
 import yaml, logging
 from queue import Queue
 import sys, os
@@ -35,8 +35,10 @@ class DataSource():
         self.slot_whitelist = [int(n) for n in str(self.conf.data.get("slot_whitelist", '')).split(',') if n != ""]
         self.slot_blacklist = [int(n) for n in str(self.conf.data.get("slot_blacklist", '')).split(',') if n != ""]
 
-        logging.info("slot_whitelist: %s(为空表示不生效)" %(self.slot_whitelist))
-        logging.info("slot_blacklist: %s(为空表示不生效)" %(self.slot_blacklist))
+        if len(self.slot_whitelist) > 0:
+            logging.info("slot_whitelist: %s" %(self.slot_whitelist))
+        if len(self.slot_blacklist) > 0:
+            logging.info("slot_blacklist: %s" %(self.slot_blacklist))
         # mprint(self.date2label)
         threading.Thread(target=self.thread_func).start()
         pass
@@ -108,9 +110,11 @@ class DataSource():
                 continue
             fids.append(fid) 
             # 减少内存占用
-            # f.ClearField("raw_feature")
-            # f.ClearField("extracted_features")
-        # ins.ClearField("label")   # 清除会导致update_avg_label_table无法读取label
+            if os.getenv('ins_memory_optimize') is not None:
+                f.ClearField("raw_feature")
+                f.ClearField("extracted_features")
+        # if os.getenv('ins_memory_optimize') is not None:
+        #     ins.ClearField("label")   # 清除会导致update_avg_label_table无法读取label
         # 需要保证所有样本的slot一致
         if True:
             slots = set([f >> 54 for f in fids])
@@ -158,7 +162,7 @@ class DataSource():
         for e in range(conf.data.epoch):
             dedup = set()
             for ins in self.enum_instance():
-                while self.train_queue.qsize() >= 50000:
+                while self.train_queue.qsize() >= 10000:
                     time.sleep(1)
                 date = ins.date 
                 if (ins.date, ins.ts_code) in dedup:
@@ -176,10 +180,11 @@ class DataSource():
                     if e == 0:
                         self.test_count += 1
                         self.test_queue.put(item)  # 修正这里
-        logging.info("[data_source] 过滤: ")
-        mprint(self.filter_reason)
-        logging.info("[data_source]训练集数量: %s, 队列中剩余%s" % (self.train_count, self.train_queue.qsize()))
-        logging.info("[data_source]测试集数量: %s 队列中剩余%s" % (self.test_count, self.test_queue.qsize()))
+        if len(self.filter_reason) > 0:
+            logging.info("[data_source] 过滤: ")
+            mprint(self.filter_reason)
+        logging.info("[data_source]训练集数量: %s, 还未消费数据%s" % (self.train_count, self.train_queue.qsize()))
+        logging.info("[data_source]测试集数量: %s 还未消费数据%s" % (self.test_count, self.test_queue.qsize()))
         logging.info("[data_source]总数据量: %s" %(self.train_count + self.test_count))
         self.is_finished = True
         return 

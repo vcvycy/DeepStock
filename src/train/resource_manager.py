@@ -6,18 +6,22 @@ import time
 # from train.fid_embedding import FidEmbedding
 class _RM:
     def __init__(self):
-        self.date2thre = {}
+        self.reset()
+    def reset(self):
+        """重置RM中的参数: 主要是data_source可以重新读
+        """
         self.conf = EasyDict(yaml.safe_load(open("./train/train.yaml", 'r').read()))
         self._data_source = None  # 初始化为None
         self._device = None
         self._summary_writer  = None
         self.step = 0
-    
+        return 
     @property
     def summary_writer(self):
+        from datetime import datetime
         from torch.utils.tensorboard import SummaryWriter
         if self._summary_writer is None:
-            writer_dir= 'runs/%s' %(int(time.time()))
+            writer_dir= 'runs/%s' %(datetime.now().strftime('%Y%m%d_%H%M'))
             logging.info("tensorboard writer dir: %s" %(writer_dir)) 
             self._summary_writer = SummaryWriter(writer_dir)
         return self._summary_writer
