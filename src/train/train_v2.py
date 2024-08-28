@@ -8,13 +8,15 @@ import torch.nn.init as init
 import logging
 from train.resource_manager import RM  # 确保这个导入是有效的
 from util import *
-from utils3 import mprint   
+from utils3 import mprint, coloring
 import time
 from datetime import datetime
 from train.fid_embedding import fidembeding
 import json
-from train.my_model import LRModel, DNNModel
+from train.my_model import *
 import os
+from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 
 class StockIterableDataset(IterableDataset):
@@ -23,36 +25,41 @@ class StockIterableDataset(IterableDataset):
     """
     def __init__(self, data_source_getter):
         super(StockIterableDataset, self).__init__()
-        self.shuffle_batch = []
-        self.shuffle_size = 123450
-        self.terms_generated = 0
+        # self.shuffle_batch = []
+        # self.shuffle_size = 123450
+        # self.terms_generated = 0
         self.count = 0
         self.data_source_getter = data_source_getter
 
     def __iter__(self):
         return self
-
-    def update_shuffle_batch(self):
-        if len(self.shuffle_batch) > 0:
-            return
-        latency = Latency()
-        while len(self.shuffle_batch) < self.shuffle_size:
-            item = self.data_source_getter()
-            if item is None:
-                break
-            self.shuffle_batch.append(item)
-            self.terms_generated += 1
-        random.shuffle(self.shuffle_batch)   # TODO
-        self.count += len(self.shuffle_batch)
-        # logging.info(f"[IterableDataset] 获取{len(self.shuffle_batch)}条数据shuffle, 总数据: {self.count}, 耗时:{latency.count():.3f}s")
+    # @Decorator.timing
+    # def update_shuffle_batch(self):
+    #     if len(self.shuffle_batch) > 0:
+    #         return
+    #     latency = Latency()
+    #     while len(self.shuffle_batch) < self.shuffle_size:
+    #         item = self.data_source_getter()
+    #         if item is None:
+    #             break
+    #         self.shuffle_batch.append(item)
+    #         self.terms_generated += 1
+    #     random.shuffle(self.shuffle_batch)   # TODO
+    #     self.count += len(self.shuffle_batch)
+    #     # logging.info(f"[IterableDataset] 获取{len(self.shuffle_batch)}条数据shuffle, 总数据: {self.count}, 耗时:{latency.count():.3f}s")
     @Decorator.timing
     def __next__(self):
-        if not self.shuffle_batch:
-            self.update_shuffle_batch()
-            if not self.shuffle_batch:
-                raise StopIteration
-        fids, label, ins = self.shuffle_batch.pop(0)  # 使用 pop(0) 移除并返回第一个元素
-        return fids, label, ins
+        item =  self.data_source_getter()
+        if item is None:
+            raise StopIteration
+        self.count += 1
+        return item
+        # if not self.shuffle_batch:
+        #     self.update_shuffle_batch()
+        #     if not self.shuffle_batch:
+        #         raise StopIteration
+        # fids, label, ins = self.shuffle_batch.pop(0)  # 使用 pop(0) 移除并返回第一个元素
+        # return fids, label, ins
 def custom_collate(batch):
     fids_list = [item[0] for item in batch]
     labels_list = torch.tensor([item[1] for item in batch])
@@ -107,15 +114,25 @@ def opt_step(opt):
 @Decorator.timing
 def main():
     latency = Latency()
-    model = LRModel().to(RM.device)
+    model = LRModelV2().to(RM.device)
     batch_size = RM.conf.train.batch_size
     train_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_train), batch_size=batch_size, collate_fn=custom_collate)
 
     data = []
     RM.step = 0 
     learning_rate  = RM.conf.train.learning_rate
-    logging.info("lr: %s bs: %s" %(learning_rate, batch_size))
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    weight_decay  = RM.conf.train.weight_decay
+    logging.info("lr: %s weight_decay: %s bs: %s" %(learning_rate, weight_decay, batch_size))
+    for name, p in model.named_parameters():
+        logging.info("model parameters: %s %s" %(name, p.size()))
+    
+    # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), betas = (0.7, 0.7), lr=learning_rate)
+    # optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
+    
+    # scheduler = StepLR(optimizer, step_size=500, gamma=0.3)  # 学习率每隔step_size个step，就下降到0.1倍
+    scheduler = CosineAnnealingLR(optimizer, T_max=2000, eta_min=1e-4)
+
     for fids_batch, label, _ in train_data:
         RM.step +=1
         step = RM.step
@@ -123,22 +140,25 @@ def main():
         prediction = model(fids_batch)
         loss = F.mse_loss(prediction, label.to(RM.device), reduction='sum')  # mean reduction，会导致低频的fid的梯度被大幅度降低, 所以fid单独拆出去
         backward(loss)
-        if step %100 == 1:
+        if step %10 == 1:
             Decorator.timing_stat() # 计算耗时
             logging.info("step[%s] loss = %.3f; Latency: %.2fs train/test_queue: %s/%s" %(step, loss.item(), latency.count(),  RM.data_source.train_queue.qsize(), RM.data_source.test_queue.qsize()))
-        RM.emit_summary('prediction', prediction, step)
-        RM.emit_summary('label', label, step)
-        RM.emit_summary('loss', loss, step)
+        RM.emit_summary('prediction', prediction)
+        RM.emit_summary('label', label)
+        RM.emit_summary('loss', loss)
         model.post_process(step)
         opt_step(optimizer)# optimizer.step()  # 更新参数
-        fidembeding.update_embedding(fids_batch, step)
-    
-    # mprint(model.state_dict(), title = "模型dense state_dict权重")
-    mprint(fidembeding.fid2embedding.state_dict(), title = "模型dense state_dict权重")
+        scheduler.step()
+        RM.summary_writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step=RM.step)
+        # model.embed_show()
+        # input("..")
+    #     fidembeding.update_embedding(fids_batch, step)
+    # fidembeding.show()
     # mprint(data)
+    model.embed_show()
     torch.save(model.state_dict(), 'model_weight.pth')
     logging.info("模型权重保存到: model_weight.pth")
-    logging.info("总训练样本: %s step: %s, 耗时: %s" %(RM.data_source.train_count, step, latency.count()))
+    logging.info("总训练样本: %s step: %s, 耗时: %s" %(RM.data_source.train_count, coloring(step), latency.count()))
     ####
     validate(model)
 def test_data_loader():

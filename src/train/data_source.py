@@ -1,5 +1,5 @@
 from easydict import EasyDict
-from util import enum_instance
+from util import enum_instance, Decorator
 from utils3 import mprint, coloring
 import yaml, logging
 from queue import Queue
@@ -89,14 +89,7 @@ class DataSource():
     def post_process(self, ins):
         fids = []
         date = ins.date 
-        try:
-            label = ins.label[self.lkey] 
-            if self.conf.data.label.get("sub_avg_label", False):
-                label -= self.date2label[date] # 除去平均label 
-        except Exception as e:
-            mprint(self.date2label)
-            logging.error("出错: %s, 可能是每日平均label不存在, 需要重新运行: stock_update_train_avg_label" %(e))
-            os._exit(0)
+        label = ins.label[self.lkey]
         
         for f in ins.feature:
             assert len(f.fids) == 1, "fids !=0"
@@ -157,12 +150,28 @@ class DataSource():
             else:
                 break
         return 
+    def post_process_label(self, item):
+        """处理label
+        为什么不放在post_process()中处理，因为:
+        会导致:  以20240101为例子
+        (1) 获取每日avg_label: 取数据->post_process -> filter(20240101的数据全部被过滤) -> 写入avg_label (此时没有20240101的数据)
+        (2) 模型训练:  取数据->post_process -> 减去avg_label(此时由于在filter前, 所以会取20240101的avg_label, 报错)
+        """
+        fid, label, ins = item
+        if self.conf.data.label.get("sub_avg_label", False):
+            try:
+                label -= self.date2label[ins.date] # 除去平均label 
+            except Exception as e:
+                mprint(self.date2label, title= "DEBUG查为什么key不存在")
+                logging.error("出错: %s, 可能是每日平均label不存在, 需要重新运行: stock_update_train_avg_label" %(e))
+                os._exit(0)
+        return fid, label, ins
     def thread_func(self):
         conf = self.conf
         for e in range(conf.data.epoch):
             dedup = set()
             for ins in self.enum_instance():
-                while self.train_queue.qsize() >= 10000:
+                while self.train_queue.qsize() >= 100000:
                     time.sleep(1)
                 date = ins.date 
                 if (ins.date, ins.ts_code) in dedup:
@@ -171,6 +180,8 @@ class DataSource():
                 item =  self.post_process(ins)    # 这一步耗时占enum_ins : 50%
                 if self.filter(item):
                     continue
+                
+                self.post_process_label(item)
                 # if len(set(["2427379723444939871", 2422899029155717707, 2423052998401735631]) & set(item[0])) == 0:
                 #     continue
                 if date <= conf.data.train_test_date:

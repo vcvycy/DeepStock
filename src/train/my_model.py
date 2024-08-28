@@ -8,7 +8,7 @@ import torch.nn.init as init
 from util import *
 from utils3 import mprint   
 from train.resource_manager import RM  # 确保这个导入是有效的
-from train.fid_embedding import fidembeding
+from train.fid_embedding import fidembeding, FidEmbeddingV2
 import json
 class LRModel(nn.Module):
     """ 逻辑回归
@@ -36,6 +36,29 @@ class LRModel(nn.Module):
     def post_process(self, *args, **kwargs):
         pass
 
+class LRModelV2(nn.Module):
+
+    def __init__(self):
+        super(LRModelV2, self).__init__()
+        self.first_time = True
+        # 添加一些初始参数
+        self.fid_embedding = FidEmbeddingV2()
+    @Decorator.timing
+    def forward(self, fids_batch):
+        embed, bias = self.fid_embedding(fids_batch) 
+        logits = torch.sum(bias, dim=1)
+        
+        prediction = logits 
+        if self.first_time:
+            logging.info(f"LRModel: embeddings({embed.shape}) bias({bias.shape}), logits({logits.shape})")
+            self.first_time = False 
+        return prediction.squeeze()  # 确保预测值的尺寸与标签的尺寸一致
+    def post_process(self, *args, **kwargs):
+        self.fid_embedding.emit_summary()
+        pass
+    def embed_show(self):
+        self.fid_embedding.show()
+        return 
 
 class DNNModel(nn.Module):
     """ 逻辑回归

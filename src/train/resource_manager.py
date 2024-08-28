@@ -21,12 +21,16 @@ class _RM:
         from datetime import datetime
         from torch.utils.tensorboard import SummaryWriter
         if self._summary_writer is None:
-            writer_dir= 'runs/%s' %(datetime.now().strftime('%Y%m%d_%H%M'))
+            writer_dir= 'runs/%s' %(datetime.now().strftime('%Y%m%d_%H%M%S'))
             logging.info("tensorboard writer dir: %s" %(writer_dir)) 
             self._summary_writer = SummaryWriter(writer_dir)
         return self._summary_writer
     @Decorator.timing
-    def emit_summary(self, name, tensor, step):
+    def emit_summary(self, name, tensor, step = None):
+        if step is None:
+            step = self.step
+        if step % 50 != 1: # 采样
+            return
         # TensorBoard记录平均值和直方图
         mean = torch.mean(tensor)
         self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)

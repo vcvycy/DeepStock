@@ -7,6 +7,7 @@ import torch.nn as nn
 from train.resource_manager import RM
 import logging
 import math
+import os
 class FidIndex:
     f2i = {}
     i2f = {}
@@ -101,16 +102,101 @@ class FidEmbedding():
         for emb in self.fid2embedding.values():
             emb.grad.zero_()
         return 
+    def show(self): 
+        data = []
+        state_dict = self.fid2embedding.state_dict()
+        print(state_dict)
+        for name in state_dict:
+            emb = state_dict[name]
+            
+            data.append({
+                "name" : name,
+                "emb" : emb.numpy(), 
+            }) 
+        data.sort(key = lambda x : - x['emb'][0])
+        mprint(data, title = "模型dense state_dict权重")
+        return 
 
 class FidEmbeddingV2(nn.Module):
-    def __init__(self):
-        estimated_fid_num = 500  # 预计有500个fid
-        estimated_dims = 100     # 预计有100个维度
-        self.fte = nn.Parameter(torch.randn(estimated_fid_num, estimated_dims))
-        self.fbias = nn.Parameter(torch.zeros(estimated_fid_num), requires_grad = True)
+    def __init__(self, embed_dims = 4, max_fid_num = 1000):
+        super(FidEmbeddingV2, self).__init__()
+        # self._max_fid_num = max_fid_num
+        self._embed_dims = embed_dims     # 预计有100个维度
+        self.variance = 0.02
+        # shape = fid_num * dims
+        self._fid_embedding = nn.Parameter(
+            torch.randn(max_fid_num, self._embed_dims) * math.sqrt(self.variance))
+        self._fid_bias = nn.Parameter(torch.zeros(max_fid_num, 1))
+        # self._fid_bias = torch.arange(0, max_fid_num)*0.01
+
+    def forward(self, fids_batch):
+        """ fids_batch维度: batch_size x dimension
+        """
+        if not isinstance(fids_batch, torch.Tensor):
+            fids_batch = FidIndex.to_index(fids_batch)
+            fids_batch = torch.tensor(fids_batch, dtype=torch.long)
+        # fids_batch:   batch_size * slot_num
+        slot_num = fids_batch.shape[1]   
+        # logging.info("slot_num: %s fids_batch: %s" %(slot_num, fids_batch.shape))
+        try:
+            batch_embd = torch.index_select(self._fid_embedding, dim=0, index=fids_batch.view(-1)) 
+        except Exception as e:
+            logging.error("fid max: %s fid_embedding.shape: %s" %(fids_batch.max(), self._fid_embedding.shape))
+            os._exit(1)
+        # print("batch_embd.shape before: %s" %(batch_embd.shape,))
+        batch_embd = batch_embd.view(-1, slot_num, self._embed_dims)  # shape = batch_size * slot_num * dims
+
+        batch_bias = torch.index_select(self._fid_bias, dim=0, index=fids_batch.view(-1))
+        batch_bias = batch_bias.view(-1, slot_num)     # shape = batch_size * slot_num
+        
+        # logging.info("batch_embd: %s batch_bias: %s" %(batch_embd.shape, batch_bias.shape))
+        return batch_embd, batch_bias
+    
+    def emit_summary(self):
+        fid_num = len(FidIndex.i2f)
+        bias = self._fid_bias
+        for idx in FidIndex.i2f:
+            fid = FidIndex.i2f[idx]
+            # RM.summary_writer.add_scalar(f"FidV2/bias/{fid}", bias[idx][0], global_step = RM.step)
+            RM.emit_summary(f"FidV2/slot{fid>>54}/{fid}", bias[idx])
+            RM.emit_summary(f"FidV2_grad/slot{fid>>54}/{fid}", bias.grad[idx])
+        return 
+    def show(self):
+        """展示fid的embeding/bias
+        """
+        bias = self._fid_bias.detach().numpy()
+        embd = self._fid_embedding.detach().numpy()
+        items = []
+        fid_num = len(FidIndex.i2f)
+        for idx in FidIndex.i2f:
+            fid = FidIndex.i2f[idx]
+            items.append({
+                "idx" : idx,
+                "slot" : fid>>54,
+                "fid" : fid,
+                "bias" : bias[idx][0],
+                f"embed({embd.shape[1]})" : embd[idx][:4]
+            })
+        items.sort(key = lambda x: -x['bias'])
+        mprint(items)
+        return 
+
+
+def test_fidembedding_v2():
+    print("test_fidembedding_v2".center(100, '-'))
+    fidembeding = FidEmbeddingV2()
+
+    # Example batch (assuming a batch size of 3 and each sample has 2 FIDs)
+    fids_batch = [[10, 20], [10, 40], [20, 60]]
+    # fids_batch = FidIndex.to_index(fids_batch)
+    embd, bias = fidembeding(fids_batch)
+    print(embd.shape)
+    print(bias.shape)
+    exit(0)
+    return 
+
 # 初始化全局Instance
 fidembeding = FidEmbedding()
-
 if __name__ == "__main__":
     def test_fid_index():
         fids = [
@@ -123,4 +209,4 @@ if __name__ == "__main__":
         print(fids2)
         return 
 
-    test_fid_index()
+    test_fidembedding_v2()

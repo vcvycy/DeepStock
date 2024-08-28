@@ -42,18 +42,19 @@ data:
   ##### data_source.py中用到
   # src: files
   train_test_date : "20240301"  # 这个时间之前的都是训练集合
-  epoch : 10
+  epoch : 1
   #### DEBUG #######
   # max_ins : 1000  # debug用
   # slot_whitelist : 134
   # slot_blacklist : 2
 train:
-  learning_rate : 0.0001
+  learning_rate : 0.01
+  weight_decay : 0.0001
   batch_size: 1000
   loss : distill
-  fid_embedding:
+  fid_embedding:  # V1版本的
     weight_decay : 0.0001
-    learning_rate : 0.1
+    learning_rate : 0.1  # LR 不同参数需要的学习率不同;  avg_label高的fid需要学习率高，avg_label低的需要学习率低
     variance : 0.0005      # 初始化方差, 在DNN中Kaiming_Normal，prediction的方差会和初始化方差差不多
 
 # 测试LRModel平均label一致

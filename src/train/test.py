@@ -1,26 +1,22 @@
 import torch
-from torch.utils.data import IterableDataset, DataLoader
+import torch.nn as nn
 
-# 定义一个自定义的 IterableDataset
-class MyIterableDataset(IterableDataset):
-    def __init__(self, num_samples):
-        super(MyIterableDataset, self).__init__()
-        self.num_samples = num_samples
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super(SimpleModel, self).__init__()
+        
+        # 定义一个名为weight的参数
+        self.weight = nn.Parameter(torch.randn(5), requires_grad=True)
+        
+        # 定义一个名为bias的参数
+        self.bias = nn.Parameter(torch.randn(1), requires_grad=True)
 
-    def __iter__(self):
-        for i in range(self.num_samples):
-            input_data = [1, 2, 3]  # 每个样本的输入数据
-            label = i % 2  # 标签在 0 和 1 之间交替
-            print("input: %s label: %s" %(input_data, label))
-            yield input_data, label
+    def forward(self, x):
+        return x * self.weight + self.bias
 
-# 创建一个 MyIterableDataset 实例
-dataset = MyIterableDataset(num_samples=10)
+# 创建模型实例
+model = SimpleModel()
 
-# 创建一个 DataLoader 实例
-dataloader = DataLoader(dataset, batch_size=2)
-
-# 遍历 DataLoader 并打印数据
-for batch in dataloader:
-    inputs, labels = batch
-    print(f"Inputs: {inputs}, Labels: {labels}")
+# 打印模型的参数
+for name, param in model.named_parameters():
+    print(f"Parameter name: {name}, size: {param.size()}")
