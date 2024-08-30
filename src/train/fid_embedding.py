@@ -27,6 +27,13 @@ class FidIndex:
         else:
             raise Exception("fid must be int or list")
         return 
+    @Decorator.timing(func_name = "FidIndex.to_index_batch")
+    def to_index_batch(fids_batch):
+        indexs_batch = []
+        for fids in fids_batch:
+            indexs = [FidIndex.to_index(fid) for fid in fids]
+            indexs_batch.append(indexs)
+        return indexs_batch
     def to_fid(indexs):
         f2i = FidIndex.f2i
         i2f = FidIndex.i2f
@@ -56,7 +63,7 @@ class FidEmbedding():
         self.weight_decay = self.conf.weight_decay # 1e-4
         self.variance = self.conf.variance # 2表示不过ReLU，所以下一层方差会扩大2倍
         logging.info("fidembedding: weight_decay: %s" %(self.weight_decay))
-    @Decorator.timing
+    @Decorator.timing()
     def get_embedding(self, fid, dims = 1, include_bias = False, device = None):
         if str(fid) not in self.fid2embedding:
             embedding =nn.Parameter(torch.randn(dims, requires_grad=True)) * math.sqrt(self.variance)
@@ -73,7 +80,7 @@ class FidEmbedding():
             return embed[:-1], embed[-1:]
         else:
             return embed
-    @Decorator.timing
+    @Decorator.timing()
     def update_embedding(self, fids_batch, step):
         # 计算每个fid的频次
         fid2count = {}
@@ -129,11 +136,12 @@ class FidEmbeddingV2(nn.Module):
         self._fid_bias = nn.Parameter(torch.zeros(max_fid_num, 1))
         # self._fid_bias = torch.arange(0, max_fid_num)*0.01
 
+    @Decorator.timing(func_name = "FidEmbeddingV2.forward")
     def forward(self, fids_batch):
         """ fids_batch维度: batch_size x dimension
         """
         if not isinstance(fids_batch, torch.Tensor):
-            fids_batch = FidIndex.to_index(fids_batch)
+            fids_batch = FidIndex.to_index_batch(fids_batch)
             fids_batch = torch.tensor(fids_batch, dtype=torch.long)
         # fids_batch:   batch_size * slot_num
         slot_num = fids_batch.shape[1]   

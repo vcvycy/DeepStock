@@ -25,7 +25,7 @@ class _RM:
             logging.info("tensorboard writer dir: %s" %(writer_dir)) 
             self._summary_writer = SummaryWriter(writer_dir)
         return self._summary_writer
-    @Decorator.timing
+    @Decorator.timing()
     def emit_summary(self, name, tensor, step = None):
         if step is None:
             step = self.step

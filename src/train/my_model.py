@@ -19,7 +19,7 @@ class LRModel(nn.Module):
         self.first_time = True
         # 添加一些初始参数
         self.dummy = nn.Parameter(torch.zeros(1, requires_grad=True,  device=RM.device))
-    @Decorator.timing
+    @Decorator.timing()
     def forward(self, fids_batch):
         embeddings = []
         # test_count = 0
@@ -43,7 +43,7 @@ class LRModelV2(nn.Module):
         self.first_time = True
         # 添加一些初始参数
         self.fid_embedding = FidEmbeddingV2()
-    @Decorator.timing
+    @Decorator.timing()
     def forward(self, fids_batch):
         embed, bias = self.fid_embedding(fids_batch) 
         logits = torch.sum(bias, dim=1)
@@ -85,7 +85,7 @@ class DNNModel(nn.Module):
             Linear(hidden_dims[1], 1)   # 输出层
         )
         self.layers.apply(initialize_weights)
-    @Decorator.timing
+    @Decorator.timing()
     def forward(self, fids_batch):
         embeddings = []
         # test_count = 0

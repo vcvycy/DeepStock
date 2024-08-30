@@ -33,7 +33,7 @@ class StockIterableDataset(IterableDataset):
 
     def __iter__(self):
         return self
-    # @Decorator.timing
+    # @Decorator.timing()
     # def update_shuffle_batch(self):
     #     if len(self.shuffle_batch) > 0:
     #         return
@@ -47,7 +47,7 @@ class StockIterableDataset(IterableDataset):
     #     random.shuffle(self.shuffle_batch)   # TODO
     #     self.count += len(self.shuffle_batch)
     #     # logging.info(f"[IterableDataset] 获取{len(self.shuffle_batch)}条数据shuffle, 总数据: {self.count}, 耗时:{latency.count():.3f}s")
-    @Decorator.timing
+    @Decorator.timing(func_name = "next-获取数据")
     def __next__(self):
         item =  self.data_source_getter()
         if item is None:
@@ -66,8 +66,9 @@ def custom_collate(batch):
     return fids_list, labels_list, [item[2] for item in batch]
 
 
-@Decorator.timing
+@Decorator.timing()
 def validate(model):
+    logging.info("正在跑validation数据集....")
     test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
     ## test
     results = []
@@ -103,15 +104,15 @@ def validate(model):
     open(save_file, "w").write(json.dumps(final_result, cls=NumpyEncoder, indent = 4, ensure_ascii=False))
     return 
 
-@Decorator.timing
+@Decorator.timing(func_name = "backward-计算梯度")
 def backward(loss):
     loss.backward()
 
-@Decorator.timing
+@Decorator.timing(func_name = "opt_step-更新梯度")
 def opt_step(opt):
     opt.step()
 
-@Decorator.timing
+@Decorator.timing()
 def main():
     latency = Latency()
     model = LRModelV2().to(RM.device)

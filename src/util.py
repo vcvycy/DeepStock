@@ -13,7 +13,7 @@ class Decorator:
     """统计函数执行时间
     example:
         # 示例函数
-        @Decorator.timing
+        @Decorator.timing()
         def example_function():
             time.sleep(2)
         # 调用示例函数
@@ -24,16 +24,21 @@ class Decorator:
     time_elapsed = {}
 
     @staticmethod
-    def timing(func):
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            end_time = time.time()
-            execution_time = end_time - start_time
-            # 将执行时间存储到静态成员变量中
-            Decorator.time_elapsed[func.__name__] = Decorator.time_elapsed.get(func.__name__, 0) +execution_time
-            return result
-        return wrapper
+    def timing(func_name=None):
+        def _timing(func):
+            nonlocal func_name
+            if func_name is None:
+                func_name = func.__name__
+            def wrapper(*args, **kwargs):
+                start_time = time.time()
+                result = func(*args, **kwargs)
+                end_time = time.time()
+                execution_time = end_time - start_time
+                # 将执行时间存储到静态成员变量中
+                Decorator.time_elapsed[func_name] = Decorator.time_elapsed.get(func_name, 0) + execution_time
+                return result
+            return wrapper
+        return _timing
 
     @staticmethod
     def timing_stat():
@@ -219,7 +224,7 @@ if __name__ == "__main__":
     latency = Latency()
     print(latency.count())
     print(latency.count())
-    # @Decorator.timing
+    # @Decorator.timing()
     # def example_function():
     #     time.sleep(2)
     # # 调用示例函数
