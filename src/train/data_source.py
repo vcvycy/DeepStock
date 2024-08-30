@@ -26,6 +26,7 @@ class DataSource():
         self.train_queue = Queue()
         self.test_queue = Queue()
         self.is_finished = False
+        self.is_test_finished = False
         self.conf = conf
         self.filter_reason = {}
         self.lkey = conf.data.label.key
@@ -119,9 +120,8 @@ class DataSource():
     def enum_instance(self):
         print("enum_instance未实现")
         raise NotImplementedError
-
-    def next(self, is_train = True):
-        queue = self.train_queue if is_train else self.test_queue
+    def next_train(self):
+        queue = self.train_queue
         while not queue.empty() or self.is_finished == False:
             if queue.empty():
                 # print("获取训练数据为空, 等待读取新数据...")
@@ -129,13 +129,17 @@ class DataSource():
                 continue
             return queue.get()
         return None
-    def next_train(self):
-        return self.next(is_train= True)
     def next_test(self):
-        return self.next(is_train = False)
+        queue = self.test_queue 
+        while not queue.empty() or self.is_test_finished == False:
+            if queue.empty():
+                time.sleep(0.1)
+                continue
+            return queue.get()
+        return None
     def get_train_data(self):
         while True:
-            item = self.next(is_train = True)
+            item = self.next_train()
             if item is not None:
                 yield item
             else:
@@ -144,7 +148,7 @@ class DataSource():
 
     def get_test_data(self):
         while True:
-            item = self.next(is_train = False)
+            item = self.next_test()
             if item is not None:
                 yield item
             else:
@@ -169,6 +173,8 @@ class DataSource():
     def thread_func(self):
         conf = self.conf
         for e in range(conf.data.epoch):
+            if e > 0:
+                self.is_test_finished = True
             dedup = set()
             for ins in self.enum_instance():
                 while self.train_queue.qsize() >= 100000:

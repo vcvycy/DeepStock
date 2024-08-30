@@ -2,7 +2,8 @@ from easydict import EasyDict
 from util import enum_instance, Decorator
 import yaml, logging
 import torch
-import time
+import time, os
+from datetime import datetime
 # from train.fid_embedding import FidEmbedding
 class _RM:
     def __init__(self):
@@ -15,13 +16,20 @@ class _RM:
         self._device = None
         self._summary_writer  = None
         self.step = 0
+        self._train_save_dir = None
         return 
+    @property
+    def train_save_dir(self):
+        if self._train_save_dir is None:
+            self._train_save_dir = 'runs/train_%s' %(datetime.now().strftime('%Y%m%d_%H%M%S'))
+            os.makedirs(self._train_save_dir, exist_ok=True)
+        return self._train_save_dir
     @property
     def summary_writer(self):
         from datetime import datetime
         from torch.utils.tensorboard import SummaryWriter
         if self._summary_writer is None:
-            writer_dir= 'runs/%s' %(datetime.now().strftime('%Y%m%d_%H%M%S'))
+            writer_dir= self.train_save_dir
             logging.info("tensorboard writer dir: %s" %(writer_dir)) 
             self._summary_writer = SummaryWriter(writer_dir)
         return self._summary_writer

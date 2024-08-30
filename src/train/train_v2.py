@@ -67,12 +67,14 @@ def custom_collate(batch):
 
 
 @Decorator.timing()
-def validate(model):
+def validate(model, test_data_list):
+    if len(test_data_list) == 0:
+        return 
     logging.info("正在跑validation数据集....")
-    test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
+    # test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
     ## test
     results = []
-    for fids_batch, label_batch , ins_batch in test_data:
+    for fids_batch, label_batch , ins_batch in test_data_list:
         pred_batch = model(fids_batch)
         # print(fids_batch)
         # print(fidembeding.fid2embedding)
@@ -99,7 +101,7 @@ def validate(model):
         "conf" : "no",
         "validate" : results
     }
-    save_file = "runs/result.%s.json" %(datetime.now().strftime("%Y%m%d%H%M"))
+    save_file = "%s/result.step_%s.json" %(RM.train_save_dir, RM.step)
     logging.info("预估结果保存到: %s, 数量: %s" %(save_file, len(results)))
     open(save_file, "w").write(json.dumps(final_result, cls=NumpyEncoder, indent = 4, ensure_ascii=False))
     return 
@@ -118,7 +120,8 @@ def main():
     model = LRModelV2().to(RM.device)
     batch_size = RM.conf.train.batch_size
     train_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_train), batch_size=batch_size, collate_fn=custom_collate)
-
+    test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
+    test_data_list = []
     data = []
     RM.step = 0 
     learning_rate  = RM.conf.train.learning_rate
@@ -151,17 +154,22 @@ def main():
         opt_step(optimizer)# optimizer.step()  # 更新参数
         scheduler.step()
         RM.summary_writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step=RM.step)
+        if len(test_data_list) == 0 and RM.data_source.is_test_finished:
+            test_data_list = list(test_data)
+        
+        if RM.step % 1000 == 0:
+            validate(model, test_data_list)
         # model.embed_show()
         # input("..")
     #     fidembeding.update_embedding(fids_batch, step)
     # fidembeding.show()
     # mprint(data)
     model.embed_show()
-    torch.save(model.state_dict(), 'model_weight.pth')
-    logging.info("模型权重保存到: model_weight.pth")
+    torch.save(model.state_dict(), '%s/model_weight.pth' %(RM.train_save_dir))
+    logging.info("模型权重保存到: %s/model_weight.pth" %(RM.train_save_dir))
     logging.info("总训练样本: %s step: %s, 耗时: %s" %(RM.data_source.train_count, coloring(step), latency.count()))
     ####
-    validate(model)
+    validate(model, test_data_list)
 def test_data_loader():
     slot2dim = {i: 1 for i in range(1024)}
     batch_size = 525
