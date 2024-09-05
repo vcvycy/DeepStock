@@ -1,5 +1,6 @@
 log_file : "../log/train_v2.log"
-
+env:
+  device : mps
 data:
   # (1) 执行 python -m train.update_avg_label_table 更新每天的平均label
   # (2) 执行 python -m train.train_v2, 数据训练
@@ -31,9 +32,9 @@ data:
         - 938942996155189327
         - 973976219481293898
   files:
+    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240830_1446
+    # - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240703_1906
     - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
-    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240703_1906
-    # - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
     # - ../training_data/data.daily.20240614_1505
   label : 
     key : next_7d_14d_mean_price
@@ -41,23 +42,20 @@ data:
 
   ##### data_source.py中用到
   # src: files
-  train_test_date : "20240401"  # 这个时间之前的都是训练集合
-  epoch : 4
+  train_test_date : "20240301"  # 这个时间之前的都是训练集合
+  epoch : 28
   #### DEBUG #######
-  # max_ins : 50000  # debug用
+  # max_ins : 100000  # debug用
   # slot_whitelist : 134
   # slot_blacklist : 2
 train:
+  log_step : 500         # 每隔log_step步打印一次日志
   learning_rate : 0.01
   weight_decay : 0.0001
   batch_size: 1000
   loss : distill
-  fid_embedding:  # V1版本的
-    weight_decay : 0.0001
-    learning_rate : 0.1  # LR 不同参数需要的学习率不同;  avg_label高的fid需要学习率高，avg_label低的需要学习率低
-    variance : 0.0005      # 初始化方差, 在DNN中Kaiming_Normal，prediction的方差会和初始化方差差不多
 
 validation:
-  step : 1000
+  step : 500             # 每隔validation_step步跑一次validation
 # 测试LRModel平均label一致
 # (1) sub_avg_label : False , 因为fid2avg_label中保存的

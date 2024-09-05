@@ -8,33 +8,117 @@ import torch.nn.init as init
 from util import *
 from utils3 import mprint   
 from train.resource_manager import RM  # 确保这个导入是有效的
-from train.fid_embedding import fidembeding, FidEmbeddingV2
+from train.fid_embedding import FidEmbeddingV2
 import json
-class LRModel(nn.Module):
-    """ 逻辑回归
-        注意: epoch得多训练几次, avg_label才能对的上
-    """
+
+# from train.distill_loss import DistillLoss
+class MyReLU(nn.Module):
+    def __init__(self, name ):
+        super(MyReLU, self).__init__()
+        self.name = name
+
+    def forward(self, x):
+        x = nn.functional.relu(x)
+        zero_fraction = (x == 0).float()
+        RM.emit_summary(self.name, zero_fraction, var=False)
+        return x
+
+class MyLinear(nn.Module):
+    def __init__(self, in_features, out_features, name):
+        super(MyLinear, self).__init__()
+        self.linear = nn.Linear(in_features, out_features)
+        self.name = name
+    def forward(self, x):
+        RM.emit_summary(self.name +"/input", x, hist=True)
+        x = self.linear(x)
+        RM.emit_summary(self.name +"/output", x, hist=True)
+        return x
+class DistillLoss(nn.Module):
+    def __init__(self, input_dims):
+        super(DistillLoss, self).__init__() 
+        self.cross_entropy = nn.CrossEntropyLoss()
+        self.softmax = nn.Softmax(dim=1)
+        # distill分桶
+        self.min_value = -0.2
+        self.max_value = 0.2
+        self.bucket = 40
+        self.interval = (self.max_value-self.min_value)/self.bucket
+        self.bounds = torch.tensor([self.min_value + i * self.interval + self.interval/2 for i in range(self.bucket)]).to(RM.device)
+        self.layers = nn.Sequential(
+            nn.Linear(input_dims, self.bucket),
+        )
+    # @Decorator.timing(func_name="DistillLoss-label2onehot")
+    def label2onehot(self, label):
+        label = label.view(-1)  # 转为一维 
+        # indices: 即0~ bucket-1中的数
+        indices = torch.clamp(torch.floor((label - self.min_value) / self.interval), 0, self.bucket - 1)
+        label_one_hot = torch.nn.functional.one_hot(indices.to(torch.int64), num_classes=self.bucket).float()
+        return label_one_hot
+
+    # @Decorator.timing(func_name="DistillLoss-forward")
+    def forward(self, in_tensor, label=None):
+        # label转one hot
+        # 计算logits和probs多分类
+        logits = self.layers(in_tensor)
+        probs = self.softmax(logits)
+        # 计算predictions
+        bucket_pred = probs * self.bounds
+        pred = torch.sum(bucket_pred, dim=1)
+        # 计算loss 
+        if label is not None:
+            label_one_hot = self.label2onehot(label)
+            if RM.can_emit_summary():
+                for i in range(self.bucket):
+                    RM.emit_summary("distill_softmax/%s/%.3f" %(i, self.bounds[i]), probs[:, i], var=False)
+                    RM.emit_summary("distill_softmax/label_one_hot/%s/%.3f" %(i, self.bounds[i]), label_one_hot[:, i], var=False)
+            loss = - torch.sum(label_one_hot * torch.log(probs))
+            return pred, loss
+        else:
+            return pred, None
+
+
+
+class DistillModel(nn.Module):
     def __init__(self):
-        super(LRModel, self).__init__()
+        super(DistillModel, self).__init__()
         self.first_time = True
         # 添加一些初始参数
-        self.dummy = nn.Parameter(torch.zeros(1, requires_grad=True,  device=RM.device))
-    @Decorator.timing()
-    def forward(self, fids_batch):
-        embeddings = []
-        # test_count = 0
-        for fids in fids_batch:
-            embeddings.append(torch.cat([fidembeding.get_embedding(fid, 1) for fid in fids])) 
-        embeddings = torch.stack(embeddings).to(RM.device)
-        logits = torch.sum(embeddings, dim=1)
-        
-        prediction = logits 
+        self.slot_num = RM.data_source.slot_num
+        self.embed_dims = 4
+        self.fid_embedding = FidEmbeddingV2(embed_dims = self.embed_dims, max_fid_num = 1000)
+        nn_dims = [16, 8]
+        self.layers = nn.Sequential(
+            MyLinear(self.embed_dims * self.slot_num, nn_dims[0], name='distill/linear1'),
+            MyReLU("distill/relu1"),  
+            MyLinear(nn_dims[0], nn_dims[1], name='distill/linear2'),
+            MyReLU("distill/relu2"),  
+        )
+        self.distill_loss = DistillLoss(nn_dims[-1])
+        return 
+
+    @Decorator.timing(func_name="DistillModel-forward")
+    def forward(self, fids_batch, label=None):
+        embed, bias = self.fid_embedding(fids_batch) 
+        RM.emit_summary("distill/input_embed", embed, hist=True)
+        # logits = torch.sum(bias, dim=1)
+        embed = embed.view(-1, RM.data_source.slot_num * self.embed_dims)
+        embed = self.layers(embed)
+        pred, loss = self.distill_loss(embed, label)
+        pred = pred.squeeze() 
         if self.first_time:
-            logging.info(f"LRModel: embeddings({embeddings.shape}), logits({logits.shape})")
-            self.first_time = False
-        return prediction.squeeze()  # 确保预测值的尺寸与标签的尺寸一致
+            logging.info(f"DistillModel: fid embeddings 过nn({embed.shape}) fid bias({bias.shape}), pred({pred.shape})")
+            self.first_time = False 
+        
+        if label is not None:
+            return pred, loss
+        else:
+            return pred
     def post_process(self, *args, **kwargs):
+        self.fid_embedding.emit_summary()
         pass
+    def embed_show(self):
+        self.fid_embedding.show()
+        return 
 
 class LRModelV2(nn.Module):
 
@@ -44,7 +128,7 @@ class LRModelV2(nn.Module):
         # 添加一些初始参数
         self.fid_embedding = FidEmbeddingV2()
     @Decorator.timing()
-    def forward(self, fids_batch):
+    def forward(self, fids_batch, label = None):
         embed, bias = self.fid_embedding(fids_batch) 
         logits = torch.sum(bias, dim=1)
         
@@ -52,7 +136,12 @@ class LRModelV2(nn.Module):
         if self.first_time:
             logging.info(f"LRModel: embeddings({embed.shape}) bias({bias.shape}), logits({logits.shape})")
             self.first_time = False 
-        return prediction.squeeze()  # 确保预测值的尺寸与标签的尺寸一致
+        prediction = prediction.squeeze()
+        if label is not None:
+            loss = F.mse_loss(prediction, label.to(RM.device), reduction='sum')
+            return prediction, loss
+        else:
+            return prediction
     def post_process(self, *args, **kwargs):
         self.fid_embedding.emit_summary()
         pass
@@ -60,63 +149,15 @@ class LRModelV2(nn.Module):
         self.fid_embedding.show()
         return 
 
-class DNNModel(nn.Module):
-    """ 逻辑回归
-    """
-    def __init__(self):
-        def initialize_weights(m):
-            if isinstance(m, nn.Linear):
-                init.kaiming_uniform_(m.weight)
-                m.bias.data.fill_(0)
-        from torch.nn import Linear
-        from torch.nn import ReLU
-        super(DNNModel, self).__init__()
-        self.first_time = True
-        self.fid_dims = 4
-        # 添加一些初始参数
-        self.dummy = nn.Parameter(torch.zeros(1, requires_grad=True,  device=RM.device))
-        hidden_dims=[16, 8]
-        input_dims = self.fid_dims * RM.data_source.slot_num
-        self.layers = nn.Sequential(
-            Linear(input_dims, hidden_dims[0]),  # 第一隐藏层
-            ReLU(),                             # 激活函数
-            Linear(hidden_dims[0], hidden_dims[1]),  # 第二隐藏层
-            ReLU(),                             # 激活函数
-            Linear(hidden_dims[1], 1)   # 输出层
-        )
-        self.layers.apply(initialize_weights)
-    @Decorator.timing()
-    def forward(self, fids_batch):
-        embeddings = []
-        # test_count = 0
-        bias_list = []
-        for fids in fids_batch:
-            embedding = [fidembeding.get_embedding(fid, self.fid_dims, include_bias = True, device =RM.device) for fid in fids]
-            bias_list.append(torch.cat([b for w, b in embedding]))
-            embeddings.append(torch.cat([w for w, b in embedding])) 
-        embeddings = torch.stack(embeddings).to(RM.device)
-        
-        RM.emit_summary("dnn_input", embeddings, step =  RM.step)
-        self.nn_out = self.layers(embeddings).squeeze()  
-        self.bias_sum = torch.mean(torch.stack(bias_list), dim=1)
-        prediction =   self.bias_sum +self.nn_out 
-        if self.first_time:
-            logging.info(f"DNNModel: embeddings({embeddings.shape}), logits({self.nn_out.shape})")
-            self.first_time = False
-        return prediction.squeeze()  
-
-    def post_process(self, step):
-        layers = self.layers
-        # 遍历并记录权重和偏置
-        with torch.no_grad():
-            for idx, layer in enumerate(layers):
-                if isinstance(layer, nn.Linear):  # 检查是否为线性层
-                    tag_base = f"dnn/layer_{idx}/"
-                    RM.emit_summary(tag_base + "weight", layer.weight, step)
-                    if layer.weight.grad is not None:
-                        RM.emit_summary(tag_base + "weight/grad", layer.weight.grad, step)
-                    RM.emit_summary(tag_base + "bias", layer.bias, step)
-                
-            RM.emit_summary("logits/bias_sum", self.bias_sum, step)
-            RM.emit_summary("logits/nn_out", self.nn_out, step)
-        return 
+def test_distill_loss():
+    distill_loss = DistillLoss(input_dims=10)
+    input = torch.randn(4, 10)
+    label = torch.randn(4, 1)
+    pred, loss = distill_loss(input, label)
+    print("pred".center(100, "*"))
+    print(pred)
+    print("loss".center(100, "*"))
+    print(loss)
+    return 
+if __name__ == "__main__":
+    pass

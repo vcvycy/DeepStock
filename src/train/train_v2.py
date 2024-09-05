@@ -11,12 +11,13 @@ from util import *
 from utils3 import mprint, coloring
 import time
 from datetime import datetime
-from train.fid_embedding import fidembeding
 import json
 from train.my_model import *
-import os
+import os, sys
 from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import threading
+from tqdm import tqdm
 
 
 class StockIterableDataset(IterableDataset):
@@ -25,28 +26,11 @@ class StockIterableDataset(IterableDataset):
     """
     def __init__(self, data_source_getter):
         super(StockIterableDataset, self).__init__()
-        # self.shuffle_batch = []
-        # self.shuffle_size = 123450
-        # self.terms_generated = 0
         self.count = 0
         self.data_source_getter = data_source_getter
 
     def __iter__(self):
         return self
-    # @Decorator.timing()
-    # def update_shuffle_batch(self):
-    #     if len(self.shuffle_batch) > 0:
-    #         return
-    #     latency = Latency()
-    #     while len(self.shuffle_batch) < self.shuffle_size:
-    #         item = self.data_source_getter()
-    #         if item is None:
-    #             break
-    #         self.shuffle_batch.append(item)
-    #         self.terms_generated += 1
-    #     random.shuffle(self.shuffle_batch)   # TODO
-    #     self.count += len(self.shuffle_batch)
-    #     # logging.info(f"[IterableDataset] 获取{len(self.shuffle_batch)}条数据shuffle, 总数据: {self.count}, 耗时:{latency.count():.3f}s")
     @Decorator.timing(func_name = "next-获取数据")
     def __next__(self):
         item =  self.data_source_getter()
@@ -54,12 +38,6 @@ class StockIterableDataset(IterableDataset):
             raise StopIteration
         self.count += 1
         return item
-        # if not self.shuffle_batch:
-        #     self.update_shuffle_batch()
-        #     if not self.shuffle_batch:
-        #         raise StopIteration
-        # fids, label, ins = self.shuffle_batch.pop(0)  # 使用 pop(0) 移除并返回第一个元素
-        # return fids, label, ins
 def custom_collate(batch):
     fids_list = [item[0] for item in batch]
     labels_list = torch.tensor([item[1] for item in batch])
@@ -69,6 +47,7 @@ def custom_collate(batch):
 @Decorator.timing()
 def validate(model, test_data_list):
     if len(test_data_list) == 0:
+        logging.info("validation数据尚未ready...")
         return 
     logging.info("正在跑validation数据集....")
     # test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
@@ -76,10 +55,6 @@ def validate(model, test_data_list):
     results = []
     for fids_batch, label_batch , ins_batch in test_data_list:
         pred_batch = model(fids_batch)
-        # print(fids_batch)
-        # print(fidembeding.fid2embedding)
-        # print(pred_batch)
-        # input("..")
         for i in range(len(fids_batch)):
             fids = fids_batch[i]
             label = label_batch[i].item()
@@ -104,6 +79,35 @@ def validate(model, test_data_list):
     save_file = "%s/result.step_%s.json" %(RM.train_save_dir, RM.step)
     logging.info("预估结果保存到: %s, 数量: %s" %(save_file, len(results)))
     open(save_file, "w").write(json.dumps(final_result, cls=NumpyEncoder, indent = 4, ensure_ascii=False))
+
+    #### 评估结果: 跑网站得到结果 ####
+    @Decorator.timing(func_name = "validation-eval_result_from_web")
+    def eval_result_from_web(save_file, step):
+        try:
+            import requests
+            for topk in [2, 4, 8, 16]:
+                url = "http://localhost:8080/model_result_process"
+                post_params = {
+                    "min_certainly":0,
+                    "path": os.path.abspath(save_file),
+                    "topk":topk,
+                    "dedup":True
+                }
+                text = requests.post(url, data=post_params).text
+                rsp = json.loads(text)[0]
+                RM.summary_writer.add_scalar(f'validation/top_{topk}/avg', 100*rsp['summary']['return_all'], global_step=step)
+                RM.summary_writer.add_scalar(f'validation/top_{topk}/p50', 100*rsp['summary']['return_p50'], global_step=step)
+                # RM.summary_writer.add_scalar(f'validation/top_{topk}/p75', 100*rsp['summary']['return_p75'], global_step=step)
+                # logging.info("评估结果-topk(%s) step:%s  %s" %(topk, step, rsp['summary'])) 
+            # 删除文件
+            os.remove(save_file)
+        except Exception as e:
+            print(post_params)
+            print(text)
+            logging.error("评估结果失败: %s" %e)
+            raise e
+    # eval_result_from_web(save_file)
+    threading.Thread(target=eval_result_from_web, args=(save_file, RM.step, )).start()
     return 
 
 @Decorator.timing(func_name = "backward-计算梯度")
@@ -114,10 +118,14 @@ def backward(loss):
 def opt_step(opt):
     opt.step()
 
-@Decorator.timing()
+def save_model_weight(model):
+    model_weight_file = "%s/model_weight_step_%s.pth" %(RM.train_save_dir, RM.step)
+    torch.save(model.state_dict(), model_weight_file)
+    logging.info("模型权重保存到: %s" %(model_weight_file))
+# @Decorator.timing()
 def main():
     latency = Latency()
-    model = LRModelV2().to(RM.device)
+    model = DistillModel().to(RM.device)
     batch_size = RM.conf.train.batch_size
     train_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_train), batch_size=batch_size, collate_fn=custom_collate)
     test_data = DataLoader(StockIterableDataset(data_source_getter=RM.data_source.next_test), batch_size=1000, collate_fn=custom_collate)
@@ -127,48 +135,66 @@ def main():
     learning_rate  = RM.conf.train.learning_rate
     weight_decay  = RM.conf.train.weight_decay
     logging.info("lr: %s weight_decay: %s bs: %s" %(learning_rate, weight_decay, batch_size))
-    for name, p in model.named_parameters():
-        logging.info("model parameters: %s %s" %(name, p.size()))
-    
+    # for name, p in model.named_parameters():
+    #     logging.info("model parameters: %s %s" %(name, p.size()))
+    logging.info("模型参数:")
+    mprint({k : v.size() for k, v in model.named_parameters()})
     # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    optimizer = optim.AdamW(model.parameters(), betas = (0.7, 0.7), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), betas = (0.9, 0.99), weight_decay = weight_decay, lr=learning_rate)
     # optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
     
     # scheduler = StepLR(optimizer, step_size=500, gamma=0.3)  # 学习率每隔step_size个step，就下降到0.1倍
     scheduler = CosineAnnealingLR(optimizer, T_max=2000, eta_min=1e-4)
-
+    validation_step = RM.conf.validation.step
+    logging.info("配置: 每隔%s步跑一次validation" %(validation_step))
+    bar = tqdm(total = 50000) 
     for fids_batch, label, _ in train_data:
-        RM.step +=1
-        step = RM.step
-        optimizer.zero_grad()  # 清零梯度
-        prediction = model(fids_batch)
-        loss = F.mse_loss(prediction, label.to(RM.device), reduction='sum')  # mean reduction，会导致低频的fid的梯度被大幅度降低, 所以fid单独拆出去
-        backward(loss)
-        if step %10 == 1:
-            Decorator.timing_stat() # 计算耗时
-            logging.info("step[%s] loss = %.3f; Latency: %.2fs train/test_queue: %s/%s" %(step, loss.item(), latency.count(),  RM.data_source.train_queue.qsize(), RM.data_source.test_queue.qsize()))
-        RM.emit_summary('prediction', prediction)
-        RM.emit_summary('label', label)
-        RM.emit_summary('loss', loss)
-        model.post_process(step)
-        opt_step(optimizer)# optimizer.step()  # 更新参数
-        scheduler.step()
-        RM.summary_writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step=RM.step)
-        if len(test_data_list) == 0 and RM.data_source.is_test_finished:
-            test_data_list = list(test_data)
-        
-        if RM.step % 1000 == 0:
-            validate(model, test_data_list)
-        # model.embed_show()
-        # input("..")
-    #     fidembeding.update_embedding(fids_batch, step)
-    # fidembeding.show()
-    # mprint(data)
+        try:
+            label = label.to(RM.device)
+            RM.step +=1
+            step = RM.step
+            optimizer.zero_grad()  # 清零梯度
+            prediction, loss = model(fids_batch, label = label)
+            # loss = F.mse_loss(prediction, label.to(RM.device), reduction='sum')  # mean reduction，会导致低频的fid的梯度被大幅度降低, 所以fid单独拆出去
+            backward(loss)
+            if step % RM.conf.train.log_step == 1:
+                Decorator.timing_stat() # 计算耗时
+                logging.info("step[%s] loss = %.3f; Latency: %.2fs train/test_queue: %s/%s" %(step, loss.item(), latency.count(),  RM.data_source.train_queue.qsize(), RM.data_source.test_queue.qsize()))
+            
+            RM.emit_summary('core/prediction', prediction, hist = True)
+            RM.emit_summary('core/label', label, hist = True)
+            RM.emit_summary('core/loss', loss)
+            RM.emit_summary('core/learning_rate', optimizer.param_groups[0]['lr']) 
+            # 工程侧监控
+            RM.emit_summary('engineer/train_queue', RM.data_source.train_queue.qsize())
+            RM.emit_summary('engineer/test_queue', RM.data_source.test_queue.qsize())
+
+            model.post_process(step)
+            opt_step(optimizer)# optimizer.step()  # 更新参数
+            scheduler.step()
+            if len(test_data_list) == 0 and RM.data_source.is_test_finished:
+                test_data_list = list(test_data)
+            
+            if RM.step % validation_step == 0:
+                validate(model, test_data_list)
+                save_model_weight(model)
+            # 进度条
+            bar.set_postfix({
+                "train_queue": RM.data_source.train_queue.qsize(), 
+                "test_queue": RM.data_source.test_queue.qsize(),
+                "loss": loss.item(),
+                "latency_per_step": "%.2f秒" %(latency.count()/RM.step),
+                "device" : RM.conf.env.device
+            })
+            bar.update(1)
+        except KeyboardInterrupt:
+            logging.info("手动退出训练过程...")
+            break
+
     model.embed_show()
-    torch.save(model.state_dict(), '%s/model_weight.pth' %(RM.train_save_dir))
-    logging.info("模型权重保存到: %s/model_weight.pth" %(RM.train_save_dir))
+    save_model_weight(model)
     logging.info("总训练样本: %s step: %s, 耗时: %s" %(RM.data_source.train_count, coloring(step), latency.count()))
-    ####
+    #### 跑完所有数据后，再跑一次验证
     validate(model, test_data_list)
 def test_data_loader():
     slot2dim = {i: 1 for i in range(1024)}
@@ -184,12 +210,6 @@ def test_data_loader():
         logging.info(f"测试数据, label {label}")
         break
 
-# def test_fid2embedding():
-#     print(fidembeding.get_embedding(12345, 5))
-#     print(fidembeding.fid2embedding)
-#     return 
-# test_fid2embedding()
-# exit(0)
 if __name__ == "__main__":
     os.environ['ins_memory_optimize'] = "1"  # data_source
     # test_data_loader()

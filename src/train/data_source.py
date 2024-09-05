@@ -8,6 +8,9 @@ import threading
 import re
 import time
 from data.sqlite import sql_api
+import sqlite3
+import json
+from common.stock_pb2 import Instance, FeatureColumn
 """ 从训练文件读取数据，多线程把数据写到 train_queue, test_queue。然后每次可以从这里读取数据
     包括 : 
         (1) 读取instances : 
@@ -25,7 +28,7 @@ class DataSource():
         self.test_count = 0
         self.train_queue = Queue()
         self.test_queue = Queue()
-        self.is_finished = False
+        self.is_train_finished = False
         self.is_test_finished = False
         self.conf = conf
         self.filter_reason = {}
@@ -122,7 +125,7 @@ class DataSource():
         raise NotImplementedError
     def next_train(self):
         queue = self.train_queue
-        while not queue.empty() or self.is_finished == False:
+        while not queue.empty() or self.is_train_finished == False:
             if queue.empty():
                 # print("获取训练数据为空, 等待读取新数据...")
                 time.sleep(0.1)
@@ -203,7 +206,8 @@ class DataSource():
         logging.info("[data_source]训练集数量: %s, 还未消费数据%s" % (self.train_count, self.train_queue.qsize()))
         logging.info("[data_source]测试集数量: %s 还未消费数据%s" % (self.test_count, self.test_queue.qsize()))
         logging.info("[data_source]总数据量: %s" %(self.train_count + self.test_count))
-        self.is_finished = True
+        self.is_train_finished = True
+        self.is_test_finished = True  # 当epoch == 1时, 会执行到这里
         return 
 class DataSourceFile(DataSource):
     def __init__(self, conf):
@@ -214,18 +218,57 @@ class DataSourceFile(DataSource):
         for ins in enum_instance(conf.data.files, max_ins = max_ins, disable_tqdm = self.conf.data.disable_tqdm):
             yield ins
         return 
-        
+
+class DataSourceSqlite(DataSource):
+    def __init__(self, conf):
+        super().__init__(conf)
+    def to_ins(self, row):
+        ins = Instance() 
+        ins.name = row['name']
+        ins.ts_code = row['ts_code']
+        ins.date = row['date']
+        ins.total_mv = row['total_mv']  
+        label = json.loads(row['label'])
+        for key in label:
+            val = label[key] 
+            ins.label[key] = val
+        feature = json.loads(row['feature']) 
+        for item in feature:
+            fc = FeatureColumn()
+            fc.name = item['name']
+            fc.slot = item['slot']
+            fc.fids.extend(item['fids'])
+            fc.raw_feature.extend(item['raw_feature'])
+            fc.extracted_features.extend(item['extracted_features'])
+            ins.feature.extend([fc])
+        return ins
+    def enum_instance(self):
+        def dict_factory(cursor, row):
+            return { col[0] : row[idx] for idx, col in enumerate(cursor.description)}
+        self.conn = sqlite3.connect(self.conf.data.sqlite_path)
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM Stock")
+        cursor.row_factory = dict_factory
+        while True:
+            rows = cursor.fetchmany(1000)
+            if not rows:
+                break
+            for row in rows:
+                ins = self.to_ins(row)
+                yield ins
+        return 
 
 if __name__ == "__main__":
     from train.resource_manager import RM
     """python -m train.data_source"""
     print("多线程train.yaml中读取 data.files, ")
-    file_source = DataSourceFile(RM.conf)
-    for item in file_source.get_train_data():
-        # fids, label, ins = item
-        # print(ins)
-        # print(fids)
-        # print(label)
-        # input("..")
+    source = DataSourceSqlite(RM.conf) 
+    # source = DataSourceFile(RM.conf)
+    for item in source.get_train_data():
+        fids, label, ins = item
+        print(ins)
+        print(fids)
+        print(label)
+        input("..")
         pass
         # print(ins.ts_code)
