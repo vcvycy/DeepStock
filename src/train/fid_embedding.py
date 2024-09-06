@@ -91,8 +91,8 @@ class FidEmbeddingV2(nn.Module):
         for idx in FidIndex.i2f:
             fid = FidIndex.i2f[idx]
             # RM.summary_writer.add_scalar(f"FidV2/bias/{fid}", bias[idx][0], global_step = RM.step)
-            RM.emit_summary(f"FidV2/slot{fid>>54}/{fid}", bias[idx])
-            RM.emit_summary(f"FidV2/embedding/slot{fid>>54}/{fid}", embd[idx], var=False)
+            # RM.emit_summary(f"FidV2/slot{fid>>54}/{fid}/bias", bias[idx])
+            RM.emit_summary(f"FidV2/slot{fid>>54}/{fid}/embd", embd[idx], var=False)
             if bias.grad is not None:
                 RM.emit_summary(f"FidV2_grad/slot{fid>>54}/{fid}", bias.grad[idx])
         return 

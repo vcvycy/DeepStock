@@ -45,7 +45,7 @@ class DistillLoss(nn.Module):
         self.interval = (self.max_value-self.min_value)/self.bucket
         self.bounds = torch.tensor([self.min_value + i * self.interval + self.interval/2 for i in range(self.bucket)]).to(RM.device)
         self.layers = nn.Sequential(
-            nn.Linear(input_dims, self.bucket),
+            MyLinear(input_dims, self.bucket, name='distill/linear_bucket')
         )
     # @Decorator.timing(func_name="DistillLoss-label2onehot")
     def label2onehot(self, label):
@@ -69,8 +69,8 @@ class DistillLoss(nn.Module):
             label_one_hot = self.label2onehot(label)
             if RM.can_emit_summary():
                 for i in range(self.bucket):
-                    RM.emit_summary("distill_softmax/%s/%.3f" %(i, self.bounds[i]), probs[:, i], var=False)
-                    RM.emit_summary("distill_softmax/label_one_hot/%s/%.3f" %(i, self.bounds[i]), label_one_hot[:, i], var=False)
+                    RM.emit_summary("distill_softmax/%s/%.3f/pred" %(i, self.bounds[i]), probs[:, i], var=False)
+                    RM.emit_summary("distill_softmax/%s/%.3f/label" %(i, self.bounds[i]), label_one_hot[:, i], var=False)
             loss = - torch.sum(label_one_hot * torch.log(probs))
             return pred, loss
         else:

@@ -85,6 +85,7 @@ def validate(model, test_data_list):
     def eval_result_from_web(save_file, step):
         try:
             import requests
+            find_better_model = False
             for topk in [2, 4, 8, 16]:
                 url = "http://localhost:8080/model_result_process"
                 post_params = {
@@ -95,12 +96,17 @@ def validate(model, test_data_list):
                 }
                 text = requests.post(url, data=post_params).text
                 rsp = json.loads(text)[0]
-                RM.summary_writer.add_scalar(f'validation/top_{topk}/avg', 100*rsp['summary']['return_all'], global_step=step)
-                RM.summary_writer.add_scalar(f'validation/top_{topk}/p50', 100*rsp['summary']['return_p50'], global_step=step)
+                summary = rsp['summary']
+                RM.summary_writer.add_scalar(f'validation/top_{topk}/avg', 100*summary['return_all'], global_step=step)
+                RM.summary_writer.add_scalar(f'validation/top_{topk}/p50', 100*summary['return_p50'], global_step=step)
                 # RM.summary_writer.add_scalar(f'validation/top_{topk}/p75', 100*rsp['summary']['return_p75'], global_step=step)
-                # logging.info("评估结果-topk(%s) step:%s  %s" %(topk, step, rsp['summary'])) 
+                logging.info("评估结果-topk(%s) step:%s  %s" %(topk, step, rsp['summary'])) 
+                if topk == 2 and summary['return_all'] > RM.validation_best:
+                    RM.validation_best = summary['return_all']
+                    find_better_model = True
             # 删除文件
-            os.remove(save_file)
+            if not find_better_model:
+                os.remove(save_file)
         except Exception as e:
             print(post_params)
             print(text)
@@ -144,7 +150,7 @@ def main():
     # optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
     
     # scheduler = StepLR(optimizer, step_size=500, gamma=0.3)  # 学习率每隔step_size个step，就下降到0.1倍
-    scheduler = CosineAnnealingLR(optimizer, T_max=2000, eta_min=1e-4)
+    scheduler = CosineAnnealingLR(optimizer, T_max=20000, eta_min=1e-4)
     validation_step = RM.conf.validation.step
     logging.info("配置: 每隔%s步跑一次validation" %(validation_step))
     bar = tqdm(total = 50000) 
@@ -179,14 +185,15 @@ def main():
                 validate(model, test_data_list)
                 save_model_weight(model)
             # 进度条
-            bar.set_postfix({
-                "train_queue": RM.data_source.train_queue.qsize(), 
-                "test_queue": RM.data_source.test_queue.qsize(),
-                "loss": loss.item(),
-                "latency_per_step": "%.2f秒" %(latency.count()/RM.step),
-                "device" : RM.conf.env.device
-            })
-            bar.update(1)
+            if RM.step % 5 == 1:   
+                bar.set_postfix({
+                    "train_queue": RM.data_source.train_queue.qsize(), 
+                    "test_queue": RM.data_source.test_queue.qsize(),
+                    "loss": loss.item(),
+                    "latency_per_step": "%.2f秒" %(latency.count()/RM.step),
+                    "device" : RM.conf.env.device
+                })
+                bar.update(5)
         except KeyboardInterrupt:
             logging.info("手动退出训练过程...")
             break

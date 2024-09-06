@@ -246,8 +246,8 @@ class DataSourceSqlite(DataSource):
         def dict_factory(cursor, row):
             return { col[0] : row[idx] for idx, col in enumerate(cursor.description)}
         self.conn = sqlite3.connect(self.conf.data.sqlite_path)
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM Stock")
+        cursor = self.conn.cursor() 
+        cursor.execute("SELECT * FROM Stock order by date")
         cursor.row_factory = dict_factory
         while True:
             rows = cursor.fetchmany(1000)

@@ -17,6 +17,8 @@ class _RM:
         self._summary_writer  = None
         self.step = 0
         self._train_save_dir = None
+        # self.validation_result = {}
+        self.validation_best = -1
         return 
     @property
     def train_save_dir(self):
@@ -38,20 +40,19 @@ class _RM:
             return True
         return False
     @Decorator.timing()
-    def emit_summary(self, name, tensor, var=True, hist=False):
-        if not self.can_emit_summary(): # 采样
-            return
-        step = self.step
-        # TensorBoard记录平均值和直方图
-        if isinstance(tensor, torch.Tensor):
-            mean = torch.mean(tensor)
-            self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)
-            if var and tensor.numel() > 1:
-                self.summary_writer.add_scalar(f'{name}/var', tensor.var(), global_step=step)
-            if hist:
-                self.summary_writer.add_histogram(name, tensor, global_step=step)
-        else:
-            self.summary_writer.add_scalar(name, tensor, global_step=step)
+    def emit_summary(self, name, tensor, var=True, hist=False, emit_anyway=False):
+        if emit_anyway or self.can_emit_summary():  
+            step = self.step
+            # TensorBoard记录平均值和直方图
+            if isinstance(tensor, torch.Tensor):
+                mean = torch.mean(tensor)
+                self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)
+                if var and tensor.numel() > 1:
+                    self.summary_writer.add_scalar(f'{name}/var', tensor.var(), global_step=step)
+                if hist:
+                    self.summary_writer.add_histogram(name, tensor, global_step=step)
+            else:
+                self.summary_writer.add_scalar(name, tensor, global_step=step)
         return
     @property
     def data_source(self):
