@@ -76,6 +76,7 @@ def validate(model, test_data_list):
         "conf" : "no",
         "validate" : results
     }
+    save_model_weight(model, RM.step)
     save_file = "%s/result.step_%s.json" %(RM.train_save_dir, RM.step)
     logging.info("预估结果保存到: %s, 数量: %s" %(save_file, len(results)))
     open(save_file, "w").write(json.dumps(final_result, cls=NumpyEncoder, indent = 4, ensure_ascii=False))
@@ -97,9 +98,8 @@ def validate(model, test_data_list):
                 text = requests.post(url, data=post_params).text
                 rsp = json.loads(text)[0]
                 summary = rsp['summary']
-                RM.summary_writer.add_scalar(f'validation/top_{topk}/avg', 100*summary['return_all'], global_step=step)
-                RM.summary_writer.add_scalar(f'validation/top_{topk}/p50', 100*summary['return_p50'], global_step=step)
-                # RM.summary_writer.add_scalar(f'validation/top_{topk}/p75', 100*rsp['summary']['return_p75'], global_step=step)
+                RM.emit_summary(f'validation/top_{topk}/avg', 100*summary['return_all'], var=False, emit_anyway=True)
+                RM.emit_summary(f'validation/top_{topk}/p50', 100*summary['return_p50'], var=False, emit_anyway=True)
                 logging.info("评估结果-topk(%s) step:%s  %s" %(topk, step, rsp['summary'])) 
                 if topk == 2 and summary['return_all'] > RM.validation_best:
                     RM.validation_best = summary['return_all']
@@ -109,10 +109,9 @@ def validate(model, test_data_list):
                 os.remove(save_file)
         except Exception as e:
             print(post_params)
-            print(text)
             logging.error("评估结果失败: %s" %e)
             raise e
-    # eval_result_from_web(save_file)
+    # eval_result_from_web(save_file, RM.step)
     threading.Thread(target=eval_result_from_web, args=(save_file, RM.step, )).start()
     return 
 
@@ -124,8 +123,8 @@ def backward(loss):
 def opt_step(opt):
     opt.step()
 
-def save_model_weight(model):
-    model_weight_file = "%s/model_weight_step_%s.pth" %(RM.train_save_dir, RM.step)
+def save_model_weight(model, step):
+    model_weight_file = "%s/model_weight_step_%s.pth" %(RM.train_save_dir, step)
     torch.save(model.state_dict(), model_weight_file)
     logging.info("模型权重保存到: %s" %(model_weight_file))
 # @Decorator.timing()
@@ -150,7 +149,7 @@ def main():
     # optimizer = optim.Adagrad(model.parameters(), lr=learning_rate)
     
     # scheduler = StepLR(optimizer, step_size=500, gamma=0.3)  # 学习率每隔step_size个step，就下降到0.1倍
-    scheduler = CosineAnnealingLR(optimizer, T_max=20000, eta_min=1e-4)
+    scheduler = CosineAnnealingLR(optimizer, T_max=40000, eta_min=1e-4)
     validation_step = RM.conf.validation.step
     logging.info("配置: 每隔%s步跑一次validation" %(validation_step))
     bar = tqdm(total = 50000) 
@@ -183,7 +182,6 @@ def main():
             
             if RM.step % validation_step == 0:
                 validate(model, test_data_list)
-                save_model_weight(model)
             # 进度条
             if RM.step % 5 == 1:   
                 bar.set_postfix({
@@ -199,7 +197,6 @@ def main():
             break
 
     model.embed_show()
-    save_model_weight(model)
     logging.info("总训练样本: %s step: %s, 耗时: %s" %(RM.data_source.train_count, coloring(step), latency.count()))
     #### 跑完所有数据后，再跑一次验证
     validate(model, test_data_list)

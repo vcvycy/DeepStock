@@ -1,10 +1,10 @@
 log_file : "../log/train_v2.log"
 env:
-  device : mps
+  device : cpu
 data:
   # (1) 执行 python -m train.update_avg_label_table 更新每天的平均label
   # (2) 执行 python -m train.train_v2, 数据训练
-  disable_tqdm : false
+  disable_tqdm : true
   filters: 
     enable: true
     only_etf: false
@@ -32,17 +32,18 @@ data:
         - 938942996155189327
         - 973976219481293898
   files:
-    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240830_1446
-    # - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240703_1906
-    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240608_0124
+    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240907_2005
+    - /Users/jianfeng/Documents/DeepLearningStock/training_data/data.daily.20240905_1038
     # - ../training_data/data.daily.20240614_1505
+  # source : sqlite
+  # sqlite_path : /Users/jianfeng/Documents/DeepLearningStock/src/stock.sqlite3.db
   label : 
     key : next_7d_14d_mean_price
     sub_avg_label : true
 
   ##### data_source.py中用到
   # src: files
-  train_test_date : "20240301"  # 这个时间之前的都是训练集合
+  train_test_date : "20240401"  # 这个时间之前的都是训练集合
   epoch : 28
   #### DEBUG #######
   # max_ins : 100000  # debug用
@@ -56,6 +57,6 @@ train:
   loss : distill
 
 validation:
-  step : 500             # 每隔validation_step步跑一次validation
+  step : 1000             # 每隔validation_step步跑一次validation
 # 测试LRModel平均label一致
 # (1) sub_avg_label : False , 因为fid2avg_label中保存的

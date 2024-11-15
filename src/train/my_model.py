@@ -29,9 +29,15 @@ class MyLinear(nn.Module):
         self.linear = nn.Linear(in_features, out_features)
         self.name = name
     def forward(self, x):
-        RM.emit_summary(self.name +"/input", x, hist=True)
+        # RM.emit_summary(self.name +"/input", x, hist=True)
         x = self.linear(x)
-        RM.emit_summary(self.name +"/output", x, hist=True)
+        # try:
+        #     RM.emit_summary(self.name +"/output", x, hist=True)
+        # except Exception as e:
+        #     print("x.shape".center(100, "*"))
+        #     print(x.shape)
+        #     logging.info(f"emit_summary error: {e}")
+        #     input("...")
         return x
 class DistillLoss(nn.Module):
     def __init__(self, input_dims):
@@ -84,9 +90,9 @@ class DistillModel(nn.Module):
         self.first_time = True
         # 添加一些初始参数
         self.slot_num = RM.data_source.slot_num
-        self.embed_dims = 4
+        self.embed_dims = 8
         self.fid_embedding = FidEmbeddingV2(embed_dims = self.embed_dims, max_fid_num = 1000)
-        nn_dims = [16, 8]
+        nn_dims = [32, 16]
         self.layers = nn.Sequential(
             MyLinear(self.embed_dims * self.slot_num, nn_dims[0], name='distill/linear1'),
             MyReLU("distill/relu1"),  

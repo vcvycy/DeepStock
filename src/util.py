@@ -178,10 +178,10 @@ def date_add(date_string, delta = 1):
     new_date_string = new_date.strftime(date_format)
     return new_date_string
 
-def get_date(delta = 0):
+def get_date(delta = 0, format = '%Y%m%d'):
     """ 获取当前date: 如返回20231001, 返回字符串
     """
-    return date_add(datetime.now().strftime('%Y%m%d'), delta)
+    return date_add(datetime.now().strftime(format), delta)
 
 def date_diff(date_str1, date_str2):
     """

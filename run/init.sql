@@ -5,8 +5,11 @@ CREATE TABLE IF NOT EXISTS stock_basic_table (
     name TEXT,
     area TEXT,
     industry TEXT,          -- 行业: 如银行
+    cnspell TEXT,           -- 首字母拼音
     market TEXT,
     list_date TEXT,
+    act_name TEXT,
+    act_ent_type TEXT,
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ts_code) 
 );
@@ -31,7 +34,7 @@ CREATE TABLE IF NOT EXISTS stock_daily_basic_table (
     total_mv REAL, -- 总市值（万元）
     circ_mv REAL, -- 流通市值（万元）
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (ts_code) 
+    PRIMARY KEY (ts_code, trade_date) 
 );
 -- 股票的公司信息
 CREATE TABLE IF NOT EXISTS  stock_company_table (
@@ -75,6 +78,8 @@ CREATE TABLE IF NOT EXISTS stock_daily_table (
     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ts_code, trade_date)  -- 主键
 );
+create index index_for_stock_daily on stock_daily_table(trade_date, ts_code); -- 建索引
+---------------- 下面是模型训练相关 ------------------
 -- 模型训练
 CREATE TABLE  IF NOT EXISTS date_avg_label_table (
     -- 每天的平均label

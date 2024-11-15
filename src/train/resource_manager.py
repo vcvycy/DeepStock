@@ -4,6 +4,7 @@ import yaml, logging
 import torch
 import time, os
 from datetime import datetime
+import threading
 # from train.fid_embedding import FidEmbedding
 class _RM:
     def __init__(self):
@@ -15,10 +16,11 @@ class _RM:
         self._data_source = None  # 初始化为None
         self._device = None
         self._summary_writer  = None
+        self.summary_lock = threading.Lock()
         self.step = 0
         self._train_save_dir = None
         # self.validation_result = {}
-        self.validation_best = -1
+        self.validation_best = 0
         return 
     @property
     def train_save_dir(self):
@@ -41,18 +43,24 @@ class _RM:
         return False
     @Decorator.timing()
     def emit_summary(self, name, tensor, var=True, hist=False, emit_anyway=False):
-        if emit_anyway or self.can_emit_summary():  
-            step = self.step
-            # TensorBoard记录平均值和直方图
-            if isinstance(tensor, torch.Tensor):
-                mean = torch.mean(tensor)
-                self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)
-                if var and tensor.numel() > 1:
-                    self.summary_writer.add_scalar(f'{name}/var', tensor.var(), global_step=step)
-                if hist:
-                    self.summary_writer.add_histogram(name, tensor, global_step=step)
-            else:
-                self.summary_writer.add_scalar(name, tensor, global_step=step)
+        with self.summary_lock:
+            if emit_anyway or self.can_emit_summary():  
+                step = self.step
+                # TensorBoard记录平均值和直方图
+                if isinstance(tensor, torch.Tensor):
+                    mean = torch.mean(tensor)
+                    self.summary_writer.add_scalar(f'{name}/mean', mean, global_step=step)
+                    if var and tensor.numel() > 1:
+                        self.summary_writer.add_scalar(f'{name}/var', tensor.var(), global_step=step)
+                    if hist:
+                        try:
+                            self.summary_writer.add_histogram(name, tensor, global_step=step)
+                        except Exception as e:
+                            logging.info(f"emit_summary error: {e}")
+                            logging.info("tensor shape: %s" %(tensor.shape))
+                            raise e
+                else:
+                    self.summary_writer.add_scalar(name, tensor, global_step=step)
         return
     @property
     def data_source(self):

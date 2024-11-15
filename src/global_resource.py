@@ -70,6 +70,10 @@ class StockInfo:
     circ_mv: float
     # date2daily是每一天的成交数据 date(如'20230101') -> StockDaily
     date2daily: dict 
+    #### 
+    cnspell: str
+    act_name: str
+    act_ent_type : str
     @classmethod
     def from_dict(cls, data: dict) -> 'StockInfo':
         data['update_time'] = datetime.strptime(data['update_time'], '%Y-%m-%d %H:%M:%S.%f')
@@ -141,6 +145,7 @@ class _ResourceCLS:
                 select * from stock_basic_table join stock_daily_basic_table on stock_daily_basic_table.ts_code = stock_basic_table.ts_code;
                 """
             all_items = sql_api.simple_execute(query)
+            # input(all_items[0])
             self._ts_code_to_stock_info = {item['ts_code'] : StockInfo.from_dict(item) for item in all_items}
         return self._ts_code_to_stock_info
     ####### 方法 ######
@@ -157,9 +162,10 @@ class _ResourceCLS:
 Resource = _ResourceCLS()
 
 if __name__ == "__main__":
-    print(Resource.trade_dates)
-    print(Resource.trade_date_add('20231228', -4))
-    # stock = Resource.ts_code_to_stock_info['000001.SZ']
+    # print(Resource.trade_dates)
+    # print(Resource.trade_date_add('20231228', -4))
+    stock = Resource.ts_code_to_stock_info['000001.SZ']
+    print(stock)
     # print(stock.daily('20231120', '20231220'))
     # print(Resource.find_stock("茅台", key = 'name'))
     # for stock in Resource.find_stock("白酒", key = 'industry'):

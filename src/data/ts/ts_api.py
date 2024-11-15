@@ -46,31 +46,33 @@ def read_stock_company():
     return client.stock_company(exchange='', fields='ts_code,chairman,manager,secretary,reg_capital,setup_date,province,city, employees')
 
 @_tushare_decorator
-def read_stock_daily(ts_code, start_date = ''):
+def read_stock_daily(ts_code='', start_date = '', end_date = ''):
     """读取股票日线数据
     """
-    return client.query('daily', ts_code=ts_code, start_date=start_date)
+    return client.query('daily', ts_code=ts_code, start_date=start_date, end_date = end_date)
 
 @_tushare_decorator
-def read_daily_basic():
-    """最新的basic信息: 市值、市净率
+def read_daily_basic(trade_date):
+    """获取所有股票date这天的市值、pe等
     """
     # 找到最近一天可以获取数据的
-    delta = 0
-    while True:
-        date = get_date(delta = delta) 
-        df = client.query('daily_basic', ts_code='', trade_date=date)
-        if df.shape[0] > 0: 
-            return df
-        else:
-            delta -= 1 
+    df = client.query('daily_basic', ts_code='', trade_date=trade_date)
+    return df
 
 @_tushare_decorator
-def get_trade_date():
+def get_trade_date(future_date = False):
     """ 获取可以交易的日期, 日期从大到小
     """
     df = client.query('trade_cal')
-    return list(df[df['is_open']==1]['cal_date'])
+    date_list = list(df[df['is_open']==1]['cal_date'])
+    date_list = [d for d in date_list if d>='20000101'] # 2000年后的才写进去
+    if future_date:
+        return date_list
+    else:
+        today = get_date()
+        return  [d for d in date_list if d <= today]
+
 
 if __name__ == "__main__":
-    print(read_daily_basic())
+    # print(get_index_weight(name="沪深300"))
+    print(read_daily_basic('20240926'))

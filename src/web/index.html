@@ -1,0 +1,193 @@
+
+<meta charset="UTF-8">
+<title>Model Result Viewer</title>
+<!-- Add Vue.js from CDN -->
+ <head>
+    <meta charset="UTF-8">
+    <title>Model Result Viewer</title>
+    <script src="./vue.min.js"></script> 
+    <script src="./axios.min.js"></script>
+    <script src="./highcharts.js"></script> 
+    <script src="./lightweight-charts.js"></script>
+    <style>
+        #container {
+            width: 100%;
+            height: 600px;
+        }
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .container {
+            margin: 20px;
+        }
+        .select-box {
+            margin-bottom: 20px;
+        }
+    </style>
+ </head>
+ <body>
+
+    <div id="app">
+        <table>
+            <thead style="background-color: #f2a2a2;">
+                <td>函数名</td> <td>请求参数</td><td>执行</td><td>返回值</td>
+            </thead>
+            <tr v-for="one_func in func_list">
+                <td> {{one_func.description}} <br>{{ one_func.func_name }}</td>
+                <td>
+                    <div v-for="(value, key) in one_func.params">
+                        <label>{{ key }}:</label>
+                        <input v-model="one_func.params[key]" :placeholder="key">
+                    </div>
+                </td>
+                <td><button v-if="running==false" @click="call_api(one_func)">执行API</button> <div v-else>running...</div></td>
+                <td v-if="one_func.show_rsp">{{one_func.rsp}}</td>
+            </tr>
+            
+        </table> 
+        <pre>
+            1. 顶部特征: 成交量巨大, 相比熊市x10, 但是指数基本不动了。大资金在出货
+            2. 成交量走势: 成交量提升->回撤->提升
+            3. 成交量巨大: 看是否涨幅巨大, 如果不是那么可能到头了
+            
+
+        </pre>
+        <div>
+            以2014-2015的经验
+            <ul>
+                <li>指数成交量起来后, 一般会走一波行情</li>
+                <li>中字头 +30%</li>
+                <li>低价股优先: 价格越低，涨幅越好, 优先10元以下股</li>
+                <li>市值: 50-100亿整体 > 20-50亿 > 100亿+</li>
+                <li><pre>热门板块: 
+
+                    互联网：2.23元
+
+                    仓储物流：2.09元
+                    
+                    证券：2.02元
+                    
+                    医疗保健：1.84元
+                    
+                    火力发电：1.8元</pre>
+                </li>
+            </ul>
+            组合两个特征: 先选中低价股(2-10元)
+            <ul>
+                <li>是否中字头:  中字头明显更好</li>
+                <li></li>
+            </ul>
+            2024分析板块
+            <ul>
+                <li>板块来自deepseek: 
+<pre>
+证券板块:
+2015 
+1. 普遍涨3倍, 大盘股前期涨3倍(1个月完成),小盘股先涨2倍(1个月), 横盘3个月后继续涨
+
+沪深300 vs 中证500:
+2015年  
+1. 前期(2014.8~2015.4)小盘股先强势3个月(+20%), 随后大盘股强势3个月(+40%), 最后小盘股又强势3个月(+20%)
+2. 后期(2015.5~2015.7)小盘股疯长一个月, 然后1个月暴跌
+
+策略: 当其中一个在3个月左右时间, 领先20%时, 追另一个指数
+</pre>
+                    
+                </li>
+            </ul> 
+        </div>
+        <div v-if="func_list[0].rsp">
+            <div v-html="func_list[0].rsp.df_html3">
+            </div>
+            <div v-html="func_list[0].rsp.df_html2">
+            </div>
+            <div v-html="func_list[0].rsp.df_html">
+            </div>
+        </div>
+    </div>
+
+    <div id="container"></div>
+    <script src="my.js"></script>
+
+    <script>
+        myvue = new Vue({
+            el: '#app',
+            data: {
+                running : false,
+                func_list: [
+                    {
+                        func_name: 'go',
+                        params: {
+                            start_date: '20150505',
+                            end_date: '20150611',
+                            merge_days : "1",
+                            group_keys: 'pe_cat'
+                        },
+                        call_back: function(rsp) {
+                            show_candle(rsp.df3)
+                            // alert('Callback executed with response: ' + JSON.stringify(rsp));
+                        },
+                        rsp: null
+                    },
+                    {
+                        func_name: 'update_superset_temp_table',
+                        description: "修改superset临时表, 跑对应区间内的数据",
+                        params: {
+                            start_date: '20140805',
+                            end_date: '20150811',
+                            sample: '1'
+                        },
+                        call_back: function(rsp) {
+                            alert(rsp)
+                        },
+                        rsp: null
+                    }
+                ]
+            },
+            methods: {
+                call_api(one_func) {
+                    one_func.rsp = "执行中...";
+                    myvue.running = true
+                    localStorage.setItem(`${one_func.func_name}_params`, JSON.stringify(one_func.params));
+
+                    axios.post(`/api/${one_func.func_name}`, one_func.params)
+                        .then(response => {
+                            console.log(response);
+                            one_func.rsp = response.data; // 存储响应数据
+                            one_func.call_back(one_func.rsp); // 执行回调函数
+                            myvue.running=false;
+                        })
+                        .catch(error => {
+                            console.error('There was an error:', error);
+                            alert('Error: ' + error.message);
+                            myvue.running=false;
+                        });
+                }
+            },
+            created() {
+                // 在页面加载时从本地缓存中读取数据
+                this.func_list.forEach(func => {
+                    const cachedParams = localStorage.getItem(`${func.func_name}_params`);
+                    if (cachedParams) {
+                        func.params = JSON.parse(cachedParams);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
