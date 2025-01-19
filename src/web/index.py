@@ -14,7 +14,7 @@ def files(path):
     else:
         # print "not exist :%s" %(path) 
         logging.info("文件 %s 不存在" %(path))
-        return "文件不存在"
+        return "文件不存在, 可能是要执行 python web/index.py"
 
 @bottle.route("/api/go", method="POST")
 def go():
